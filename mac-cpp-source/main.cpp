@@ -30,6 +30,7 @@
 #include "VNCFrameBuffer.h"
 #include "OSUtilities.h"
 #include "GestaltUtils.h"
+#include "auxsock.h"
 
 #include <SIOUX.h>
 
@@ -60,6 +61,9 @@ OSErr StartServer();
 Boolean RunningAtStartup();
 void SetUpMenus();
 int ShowAlert(unsigned long type, short id, const char* format, ...);
+
+long uifd = 0;
+long ret;
 
 main() {
     InitGraf((Ptr) &qd.thePort);
@@ -99,7 +103,7 @@ main() {
     /* Run the event loop */
     while (!gCancel || !vncServerStopped()) {
         EventRecord event;
-        EventGet(everyEvent, &event, 10, NULL);
+        EventGet(everyEvent, &event, 1, NULL);
         #ifdef USE_STDOUT
             if(!SIOUXHandleOneEvent(&event))
         #endif
@@ -124,6 +128,7 @@ main() {
                 vncServerStop();
                 HiliteControl(FindCHndl(iStart), 0);
         }
+        yieldToVNCIfNecessary();
     }
 
     DisposeDialog(gDialog);
@@ -132,6 +137,8 @@ main() {
     #ifndef VNC_HEADLESS_MODE
         Alert(129, NULL); // Sponsorship dialog box
     #endif
+
+	auxclose(uifd);
 
     return 0;
 }

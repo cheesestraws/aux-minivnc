@@ -17,6 +17,8 @@
 
 #pragma once
 
+#define USE_STDOUT
+
 /**
  * Specify a compression level for the color TTRL encoder,
  * from 0 to 4

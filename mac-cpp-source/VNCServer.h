@@ -18,11 +18,14 @@
 #include "VNCConfig.h"
 
 extern Boolean allowControl, sendGraphics, allowIncremental, fbColorMapNeedsUpdate;
+extern long vncFD;
 
 OSErr vncServerStart();
 OSErr vncServerStop();
 OSErr vncServerError();
 Boolean vncServerStopped();
+void yieldToVNCIfNecessary(); //aux
+void vncCheckForActivity(); // aux
 
 // Constants for specialized builds
 

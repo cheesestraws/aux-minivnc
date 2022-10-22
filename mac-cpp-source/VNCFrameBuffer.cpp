@@ -58,7 +58,7 @@ OSErr VNCFrameBuffer::setup() {
         else {
             // We are on a color Mac, create a virtual B&W map
             vncBits.rowBytes = VNC_FB_WIDTH/8;
-            vncBits.baseAddr = NewPtr((unsigned long)VNC_FB_WIDTH/8 * VNC_FB_HEIGHT);
+            vncBits.baseAddr = NewPtrClear((unsigned long)VNC_FB_WIDTH/8 * VNC_FB_HEIGHT);
             SetRect(&vncBits.bounds, 0, 0, VNC_FB_WIDTH, VNC_FB_HEIGHT);
             OSErr err = MemError();
             if (err != noErr)
@@ -72,7 +72,7 @@ OSErr VNCFrameBuffer::setup() {
     #endif
 
     const unsigned int paletteSize = 1 << fbDepth;
-    ctColors = (VNCColor*) NewPtr(sizeof(VNCColor) * paletteSize);
+    ctColors = (VNCColor*) NewPtrClear(sizeof(VNCColor) * paletteSize);
     if (MemError() != noErr)
         return MemError();
 

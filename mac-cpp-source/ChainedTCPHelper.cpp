@@ -40,12 +40,12 @@ OSErr ChainedTCPHelper::begin(TCPiopb *pBlock) {
  * A buffer must be provided for storing incoming data waiting to be processed.
  * Once isReady() is true call getStream() to retreive the stream pointer.
  */
-void ChainedTCPHelper::createStream(TCPiopb *pBlock, Ptr recvPtr, unsigned short recvLen) {
+void ChainedTCPHelper::createStream(TCPiopb *pBlock, Ptr recvPtr, unsigned short recvLen, TCPNotifyUPP asr) {
     pBlock->csCode = TCPCreate;
     pBlock->ioResult = 1;
     pBlock->csParam.create.rcvBuff = recvPtr;
     pBlock->csParam.create.rcvBuffLen = recvLen;
-    pBlock->csParam.create.notifyProc = nil;
+    pBlock->csParam.create.notifyProc = asr;
     PBControl((ParmBlkPtr)pBlock,true);
 }
 
@@ -149,6 +149,7 @@ void ChainedTCPHelper::send(TCPiopb *pBlock, StreamPtr streamPtr, wdsEntry data[
     pBlock->csParam.send.pushFlag = push;
     pBlock->csParam.send.urgentFlag = urgent;
     pBlock->csParam.send.wdsPtr = (Ptr) data;
+    pBlock->csParam.send.sendLength = 0;
     PBControl((ParmBlkPtr)pBlock,true);
 }
 

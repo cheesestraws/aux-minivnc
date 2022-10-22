@@ -6,9 +6,6 @@
 // TridiaVNC is released under the GNU General Public Licence (GPL).  Please read the file "LICENSE.H" for more information.
 // If this file is not present, please contact Jonathan at <chromi@cyberspace.org> or write to the Free Software Foundation,
 // whose contact details can be found on http://www.fsf.org/.
-
-#include "LICENSE.H"
-
 #define XK_VoidSymbol           0xFFFFFF
                                 
 #define XK_space                0x0020

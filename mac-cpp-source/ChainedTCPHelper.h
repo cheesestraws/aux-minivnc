@@ -18,7 +18,7 @@
 #include "compat.h"
 #include "MacTCP.h"
 
-const long kTimeOut = 120;      /* Timeout for TCP commands */
+const long kTimeOut = 30000;      /* Timeout for TCP commands */
 
 struct ExtendedTCPiopb;
 
@@ -38,7 +38,7 @@ class ChainedTCPHelper {
 
         static OSErr begin(TCPiopb *pBlock);
 
-        static void createStream(TCPiopb *pBlock, Ptr recvPtr, unsigned short recvLen);
+        static void createStream(TCPiopb *pBlock, Ptr recvPtr, unsigned short recvLen, TCPNotifyUPP asr);
 
         static void openConnection(TCPiopb *pBlock, StreamPtr streamPtr, ip_addr remoteHost, tcp_port remotePort, Byte timeout = kTimeOut);
         static void waitForConnection(TCPiopb *pBlock, StreamPtr streamPtr, Byte timeout, tcp_port localPort, ip_addr remoteHost = 0, tcp_port remotePort = 0);
@@ -50,6 +50,7 @@ class ChainedTCPHelper {
         static void release(TCPiopb *pBlock, StreamPtr streamPtr);
 
         static void send(TCPiopb *pBlock, StreamPtr streamPtr, wdsEntry data[], Byte timeout = kTimeOut, Boolean push = false, Boolean urgent = false);
+        static void sendSync(TCPiopb *pBlock, StreamPtr streamPtr, wdsEntry data[], Byte timeout = kTimeOut, Boolean push = false, Boolean urgent = false);
         static void receive(TCPiopb *pBlock, StreamPtr streamPtr, Ptr buffer, unsigned short length, Byte timeout = kTimeOut);
         static void getReceiveInfo(TCPiopb *pBlock, unsigned short *rcvLen, Boolean *urgent = 0,Boolean *mark = 0);
 

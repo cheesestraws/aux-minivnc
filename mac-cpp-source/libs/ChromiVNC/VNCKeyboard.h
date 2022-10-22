@@ -9,11 +9,6 @@
 // be found on http://www.fsf.org/.  TridiaVNC is Free Software; it has no warranty, not even the normally implied warranties such
 // as "fitness for purpose" and so on.
 
-#include "LICENSE.h"
-
-
-#include "LICENSE.h"
-
 class VNCKeyboard {
     public:
         static void Setup();

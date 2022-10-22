@@ -15,6 +15,7 @@
  *   location: <http://www.gnu.org/licenses/>.                              *
  ****************************************************************************/
 #include <string.h>
+#include <stdio.h>
 
 #include "VNCServer.h"
 #include "VNCFrameBuffer.h"
@@ -97,9 +98,9 @@ OSErr VNCEncoder::setup() {
         const unsigned long tilesPerRow = fbWidth / 16;
     #endif
     #if defined(VNC_FB_MONOCHROME) || defined(USE_FAST_MONO_ENCODER)
-        fbUpdateBuffer = (unsigned char*) NewPtr(tilesPerRow * PLAIN_PACKED_TILE_SIZE(1));
+        fbUpdateBuffer = (unsigned char*) NewPtrClear(tilesPerRow * PLAIN_PACKED_TILE_SIZE(1));
     #else
-        fbUpdateBuffer = (unsigned char*) NewPtr(UPDATE_BUFFER_SIZE);
+        fbUpdateBuffer = (unsigned char*) NewPtrClear(UPDATE_BUFFER_SIZE);
     #endif
     if (MemError() != noErr)
         return MemError();

@@ -71,7 +71,7 @@ OSErr VNCScreenHash::setup() {
     const size_t colHashSize = COL_HASH_SIZE;
     const size_t rowHashSize = ROW_HASH_SIZE;
     const size_t dataSize = sizeof(MonoHashData) + (colHashSize + rowHashSize) * 2 * sizeof(unsigned long);
-    data = (MonoHashData*) NewPtr(dataSize);
+    data = (MonoHashData*) NewPtrClear(dataSize);
     if (MemError() != noErr)
         return MemError();
 
@@ -144,7 +144,7 @@ OSErr VNCScreenHash::makeVBLTaskPersistent(VBLTaskPtr task) {
     } *sysHeapPtr;
 
     // get a block in the system heap
-    sysHeapPtr = (JMPInstr*) NewPtrSys(sizeof(JMPInstr));
+    sysHeapPtr = (JMPInstr*) NewPtrSysClear(sizeof(JMPInstr));
     OSErr err = MemError();
     if(err != noErr) return err;
 
@@ -199,6 +199,8 @@ Boolean VNCScreenHash::requestDirtyRect(int x, int y, int w, int h, HashCallback
 }
 
 pascal void VNCScreenHash::myVBLTask(VBLTaskPtr theVBL) {
+	// bit of a hack, this
+
     #if defined(TEST_HASH)
         if(1) {
             beginCompute();

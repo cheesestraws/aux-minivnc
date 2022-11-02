@@ -32,6 +32,8 @@
 #include "VNCEncodeTRLE.h"
 #include "ChainedTCPHelper.h"
 
+#define size_t unsigned long
+
 #define VNC_DEBUG
 
 #ifndef USE_STDOUT
@@ -173,7 +175,7 @@ void vncCheckForActivity() {
 		first_time++;
 	}
 	
-	ready_fds = auxselect(1, &wr_fdset, &rd_fdset, &err_fdset, &timeout);
+	ready_fds = auxselect(vncFD + 1, &wr_fdset, &rd_fdset, &err_fdset, &timeout);
 	while (ready_fds > 0) {
 		if (first_time == 1) {
 			printf("saw a ready fd! rd_fset = %ld\n", rd_fdset);
@@ -181,7 +183,8 @@ void vncCheckForActivity() {
 		}
 		if (!wantsRecv) { return; }
 		if (first_time == 2) {
-			printf("calling wantsRecv");
+			printf("calling wantsRecv\n");
+			first_time++;
 		}
 		
 		wr = wantsRecv;
@@ -190,7 +193,7 @@ void vncCheckForActivity() {
 		
 		wr_fdset = 0;
 		rd_fdset = 1 << vncFD;
-		err_fdset = 1 << vncFD;
+//		err_fdset = 1 << vncFD;
 		timeout.tv_sec = 0;
 		timeout.tv_usec = 0;
 
@@ -219,11 +222,26 @@ long auxsendw(long sock, char* msg, long length, long flags) {
 long auxrecvw(long sock, char* msg, long length, long flags);
 long auxrecvw(long sock, char* msg, long length, long flags) {
 	long ret;
+	long oldflags;
+	long newflags;
+
+	// force blocking	
+	oldflags = auxfcntl(sock, F_GETFL, 0);
+	newflags = oldflags & ~O_NDELAY;
+	auxfcntl(sock, F_SETFL, newflags);
+	
+top:
 	ret = auxrecv(sock, msg, length, flags);
 	
 	if (ret < 0) {
 		printf("recv err: %ld fd %ld\n", sockerr(), sock);
+		
+		if (sockerr() == 4) { // EI(
+			goto top;
+		}
 	}
+	
+	auxfcntl(sock, F_SETFL, oldflags);
 		
 	return ret;
 }
@@ -348,7 +366,7 @@ unsigned long tcpExtractFD(TCPiopb *pb) {
 
 pascal void tcpSendProtocolVersion(TCPiopb *pb) {
 	long ret;
-    if (tcpSuccess(pb)) {
+    //if (tcpSuccess(pb)) {
         vncState = VNC_CONNECTED;
         stream = tcp.getStream(pb);
         vncFD = tcpExtractFD(pb);
@@ -359,11 +377,10 @@ pascal void tcpSendProtocolVersion(TCPiopb *pb) {
         	printf("socket fd is %ld", vncFD);
             printf("Sending Protocol Version!\n");
         #endif
-
-        auxsendw(vncFD, (Ptr) vncServerVersion, strlen(vncServerVersion), 0);
-
+        
         wantsRecv = tcpRequestClientProtocolVersion;
-    }
+        auxsendw(vncFD, (Ptr) vncServerVersion, strlen(vncServerVersion), 0);
+    //}
 }
 
 pascal void tcpRequestClientProtocolVersion(TCPiopb *pb) {
@@ -381,7 +398,7 @@ pascal void tcpRequestClientProtocolVersion(TCPiopb *pb) {
 }
 
 pascal void tcpSendSecurityHandshake(TCPiopb *pb) {
-    if (tcpSuccess(pb)) {
+//    if (tcpSuccess(pb)) {
         #ifdef VNC_DEBUG
             printf("Client VNC Version: %s\n", vncClientVersion);
         #endif
@@ -389,17 +406,20 @@ pascal void tcpSendSecurityHandshake(TCPiopb *pb) {
         // send the VNC security handshake
         printf("Sending VNC Security Handshake\n");
 
-        auxsendw(vncFD, (Ptr) &vncSecurityHandshake, sizeof(long), 0);
         wantsRecv = tcpRequestClientInit;
-    }
+        auxsendw(vncFD, (Ptr) &vncSecurityHandshake, sizeof(long), 0);
+//    }
 }
 
 pascal void tcpRequestClientInit(TCPiopb *pb) {
-    if (tcpSuccess(pb)) {
+//    if (tcpSuccess(pb)) {
         // get client init message
-        tcp.then(pb, tcpSendServerInit);
-        tcp.receive(pb, stream, &vncClientInit, 1);
-    }
+        //tcp.then(pb, tcpSendServerInit);
+        //tcp.receive(pb, stream, &vncClientInit, 1);
+        
+        auxrecvw(vncFD, (Ptr) &vncClientInit, 1, 0);
+        tcpSendServerInit(pb);
+//    }
 }
 
 pascal void tcpSendServerInit(TCPiopb *pb) {
@@ -431,9 +451,9 @@ pascal void tcpSendServerInit(TCPiopb *pb) {
         BlockMove(&epb_recv, &epb_send, sizeof(ExtendedTCPiopb));
 
         vncState = VNC_RUNNING;
-        auxsendw(vncFD, (Ptr) &vncServerInit, sizeof(vncServerInit), 0);
-   
+
         wantsRecv = vncStartSlowMessageHandling;
+        auxsendw(vncFD, (Ptr) &vncServerInit, sizeof(vncServerInit), 0);   
     }
 }
 
@@ -565,22 +585,22 @@ void processSetEncodingsFragment(size_t bytesRead, char *&dst) {
 }
 
 pascal void vncStartSlowMessageHandling(TCPiopb *pb) {
-	if (tcpSuccess(pb) && vncState == VNC_RUNNING) {
+	/* if (tcpSuccess(pb) && vncState == VNC_RUNNING) {
         // read the first byte of a message
         tcp.then(pb, vncHandleMessageSlowly);
         tcp.receive(pb, stream, horribleBuffer, 512);
-    }
-    
-    /* long len;
+    } */
+    long len;
     len = auxrecv(vncFD, horribleBuffer, 512, 0);
+    wantsRecv = vncStartSlowMessageHandling;
+
     if (len > 0) {
     	processMessageFragment(horribleBuffer, len);
     }
     
-    wantsRecv = vncStartSlowMessageHandling; */
 }
 
-pascal void vncHandleMessageSlowly(TCPiopb *pb) {
+/* pascal void vncHandleMessageSlowly(TCPiopb *pb) {
 	unsigned short len;
 	
     if (tcpSuccess(pb)) {
@@ -590,7 +610,7 @@ pascal void vncHandleMessageSlowly(TCPiopb *pb) {
 	    tcp.then(pb, vncHandleMessageSlowly);
 	    tcp.receive(pb, stream, horribleBuffer, 512);
     }
-}
+} */
 
 void vncEncoding(unsigned long) {
     #ifdef VNC_DEBUG

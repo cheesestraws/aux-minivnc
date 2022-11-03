@@ -24,6 +24,7 @@
 #include "aux.h"
 #include "auxsock.h"
 #include "vblutils.h"
+#include "lowmem.h"
 #include "VNCServer.h"
 #include "VNCKeyboard.h"
 #include "VNCTypes.h"
@@ -97,32 +98,6 @@ pascal void vncSendFBUpdateColorMap(TCPiopb *pb);
 pascal void vncSendFBUpdateHeader(TCPiopb *pb);
 pascal void vncSendFBUpdateRow(TCPiopb *pb);
 pascal void vncSendFBUpdateFinished(TCPiopb *pb);
-
-/* From github.com/jeeb/mpc-be/blob/master/include/qt/LowMem.h
- *  EXTERN_API(void) LMSetMouseTemp(Point value)        TWOWORDINLINE(0x21DF, 0x0828)  // movel %sp@+,0x00000828
- *  EXTERN_API(void) LMSetRawMouseLocation(Point value) TWOWORDINLINE(0x21DF, 0x082C)  // movel %sp@+,0x0000082c
- *  EXTERN_API(void) LMSetMouseLocation(Point value)    TWOWORDINLINE(0x21DF, 0x0830)  // movel %sp@+,0x00000830
- *  EXTERN_API(void) LMSetMouseButtonState(UInt8 value) TWOWORDINLINE(0x11DF, 0x0172)  // moveb %sp@+,0x00000172
- *
- * From github.com/jeeb/mpc-be/blob/master/include/qt/QuickDraw.h
- *  EXTERN_API(void) LMSetCursorNew(Boolean value)      TWOWORDINLINE(0x11DF, 0x08CE)  // moveb %sp@+,0x000008ce
- */
-
-void LMSetMBTicks(unsigned long val);
-void LMSetMouseTemp(Point pt);
-void LMSetRawMouseLocation(Point pt);
-void LMSetMouseLocation(Point pt);
-void LMSetCursorNew(Boolean val);
-void LMSetMouseButtonState(unsigned char val);
-Boolean LMGetCrsrCouple();
-
-void LMSetMBTicks(unsigned long val)          {*((unsigned long*) 0x016e) = val;}
-void LMSetMouseTemp(Point pt)                 {*((unsigned long*) 0x0828) = *(long*)&pt;}
-void LMSetRawMouseLocation(Point pt)          {*((unsigned long*) 0x082c) = *(long*)&pt;}
-void LMSetMouseLocation(Point pt)             {*((unsigned long*) 0x0830) = *(long*)&pt;}
-void LMSetCursorNew(Boolean val)              {*((Boolean*)       0x08ce) = val;}
-void LMSetMouseButtonState(unsigned char val) {*((unsigned char*) 0x0172) = val;}
-Boolean LMGetCrsrCouple()                     {return * (Boolean*) 0x8cf;}
 
 ExtendedTCPiopb    epb_recv;
 ExtendedTCPiopb    epb_send;
@@ -365,96 +340,72 @@ unsigned long tcpExtractFD(TCPiopb *pb) {
 }
 
 pascal void tcpSendProtocolVersion(TCPiopb *pb) {
-	long ret;
-    //if (tcpSuccess(pb)) {
-        vncState = VNC_CONNECTED;
-        stream = tcp.getStream(pb);
-        vncFD = tcpExtractFD(pb);
-        savedPB = pb;
+    vncState = VNC_CONNECTED;
+    stream = tcp.getStream(pb);
+    vncFD = tcpExtractFD(pb);
+    savedPB = pb;
 
-        // send the VNC protocol version
-        #ifdef VNC_DEBUG
-        	printf("socket fd is %ld", vncFD);
-            printf("Sending Protocol Version!\n");
-        #endif
-        
-        wantsRecv = tcpRequestClientProtocolVersion;
-        auxsendw(vncFD, (Ptr) vncServerVersion, strlen(vncServerVersion), 0);
-    //}
+    #ifdef VNC_DEBUG
+    	printf("socket fd is %ld", vncFD);
+        printf("Sending Protocol Version!\n");
+    #endif
+    
+    wantsRecv = tcpRequestClientProtocolVersion;
+    auxsendw(vncFD, (Ptr) vncServerVersion, strlen(vncServerVersion), 0);
 }
 
 pascal void tcpRequestClientProtocolVersion(TCPiopb *pb) {
-    //if (tcpSuccess(pb)) {
-        // request the client VNC protocol version
-        //tcp.then(pb, tcpSendSecurityHandshake);
-        //tcp.receive(pb, stream, vncClientVersion, 12);
-    //}
-    
-    long ret;
-    printf("rcv start\n");
-    ret = auxrecvw(vncFD, vncClientVersion, 12, 0);
-    printf("rcv ret %ld, errno %ld\n", ret, sockerr());
+    auxrecvw(vncFD, vncClientVersion, 12, 0);
     tcpSendSecurityHandshake(pb);
 }
 
 pascal void tcpSendSecurityHandshake(TCPiopb *pb) {
-//    if (tcpSuccess(pb)) {
-        #ifdef VNC_DEBUG
-            printf("Client VNC Version: %s\n", vncClientVersion);
-        #endif
+    #ifdef VNC_DEBUG
+        printf("Client VNC Version: %s\n", vncClientVersion);
+    #endif
 
-        // send the VNC security handshake
-        printf("Sending VNC Security Handshake\n");
+    printf("Sending VNC Security Handshake\n");
 
-        wantsRecv = tcpRequestClientInit;
-        auxsendw(vncFD, (Ptr) &vncSecurityHandshake, sizeof(long), 0);
-//    }
+    wantsRecv = tcpRequestClientInit;
+    auxsendw(vncFD, (Ptr) &vncSecurityHandshake, sizeof(long), 0);
 }
 
 pascal void tcpRequestClientInit(TCPiopb *pb) {
-//    if (tcpSuccess(pb)) {
-        // get client init message
-        //tcp.then(pb, tcpSendServerInit);
-        //tcp.receive(pb, stream, &vncClientInit, 1);
-        
-        auxrecvw(vncFD, (Ptr) &vncClientInit, 1, 0);
-        tcpSendServerInit(pb);
-//    }
+    auxrecvw(vncFD, (Ptr) &vncClientInit, 1, 0);
+    tcpSendServerInit(pb);
 }
 
 pascal void tcpSendServerInit(TCPiopb *pb) {
-    if (tcpSuccess(pb)) {
-        #ifdef VNC_DEBUG
-            printf("Client Init: %d\n", vncClientInit);
-        #endif
-        // send the VNC security handshake
-        printf("Connection established!\n");
-        #ifdef VNC_FB_WIDTH
-            vncServerInit.fbWidth = VNC_FB_WIDTH;
-            vncServerInit.fbHeight = VNC_FB_HEIGHT;
-        #else
-            vncServerInit.fbWidth = fbWidth;
-            vncServerInit.fbHeight = fbHeight;
-        #endif
-        vncServerInit.format.bigEndian = 1;
-        vncServerInit.format.bitsPerPixel = 8;
-        #ifdef VNC_FB_BITS_PER_PIX
-            vncServerInit.format.depth = VNC_FB_BITS_PER_PIX;
-        #else
-            vncServerInit.format.depth = fbDepth;
-        #endif
-        vncServerInit.format.trueColor = 0;
-        vncServerInit.nameLength = 10;
-        memcpy(vncServerInit.name, "Macintosh ", 10);
+    #ifdef VNC_DEBUG
+        printf("Client Init: %d\n", vncClientInit);
+    #endif
+    // send the VNC security handshake
+    printf("Connection established!\n");
+    #ifdef VNC_FB_WIDTH
+        vncServerInit.fbWidth = VNC_FB_WIDTH;
+        vncServerInit.fbHeight = VNC_FB_HEIGHT;
+    #else
+        vncServerInit.fbWidth = fbWidth;
+        vncServerInit.fbHeight = fbHeight;
+    #endif
+    vncServerInit.format.bigEndian = 1;
+    vncServerInit.format.bitsPerPixel = 8;
+    #ifdef VNC_FB_BITS_PER_PIX
+        vncServerInit.format.depth = VNC_FB_BITS_PER_PIX;
+    #else
+        vncServerInit.format.depth = fbDepth;
+    #endif
+    vncServerInit.format.trueColor = 0;
+    vncServerInit.nameLength = 10;
+    memcpy(vncServerInit.name, "Macintosh ", 10);
 
-        // Prepare a copy of our parameter block for sending frames
-        BlockMove(&epb_recv, &epb_send, sizeof(ExtendedTCPiopb));
+    // Prepare a copy of our parameter block for sending frames
+    BlockMove(&epb_recv, &epb_send, sizeof(ExtendedTCPiopb));
 
-        vncState = VNC_RUNNING;
+    vncState = VNC_RUNNING;
 
-        wantsRecv = vncStartSlowMessageHandling;
-        auxsendw(vncFD, (Ptr) &vncServerInit, sizeof(vncServerInit), 0);   
-    }
+    wantsRecv = vncStartSlowMessageHandling;
+    auxsendw(vncFD, (Ptr) &vncServerInit, sizeof(vncServerInit), 0);   
 }
 
 void processMessageFragment(const char *src, size_t len) {
@@ -585,11 +536,6 @@ void processSetEncodingsFragment(size_t bytesRead, char *&dst) {
 }
 
 pascal void vncStartSlowMessageHandling(TCPiopb *pb) {
-	/* if (tcpSuccess(pb) && vncState == VNC_RUNNING) {
-        // read the first byte of a message
-        tcp.then(pb, vncHandleMessageSlowly);
-        tcp.receive(pb, stream, horribleBuffer, 512);
-    } */
     long len;
     len = auxrecv(vncFD, horribleBuffer, 512, 0);
     wantsRecv = vncStartSlowMessageHandling;
@@ -599,18 +545,6 @@ pascal void vncStartSlowMessageHandling(TCPiopb *pb) {
     }
     
 }
-
-/* pascal void vncHandleMessageSlowly(TCPiopb *pb) {
-	unsigned short len;
-	
-    if (tcpSuccess(pb)) {
-		tcp.getReceiveInfo(pb, &len, NULL, NULL);
-		processMessageFragment(horribleBuffer, len);
-		// Go around the loop again	
-	    tcp.then(pb, vncHandleMessageSlowly);
-	    tcp.receive(pb, stream, horribleBuffer, 512);
-    }
-} */
 
 void vncEncoding(unsigned long) {
     #ifdef VNC_DEBUG

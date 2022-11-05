@@ -29,7 +29,7 @@ struct sockaddr_in {
 #define	SOCK_DGRAM	2		/* datagram socket */
 #define	SOCK_RAW	3		/* raw-protocol interface */
 
-#define	INADDR_ANY		(u_long)0x00000000
+#define	INADDR_ANY		(unsigned long)0x00000000
 
 /* fcntl(2) requests */
 #define	F_GETFL		3	/* Get file flags */

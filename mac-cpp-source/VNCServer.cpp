@@ -64,6 +64,7 @@ static asm void PreCompletion(TCPiopb *pb);
 Boolean tcpSuccess(TCPiopb *pb);
 unsigned long tcpExtractFD(TCPiopb *pb);
 
+pascal void tcpAcceptConnection(TCPiopb *pb);
 pascal void tcpStreamCreated(TCPiopb *pb);
 pascal void tcpStreamClosed(TCPiopb *pb);
 pascal void tcpSendProtocolVersion(TCPiopb *pb);
@@ -103,7 +104,9 @@ ExtendedTCPiopb    epb_recv;
 ExtendedTCPiopb    epb_send;
 ChainedTCPHelper   tcp;
 StreamPtr          stream;
+long               listenFD = -1;
 long               vncFD = -1;
+long               clientFD = -1;
 OSErr              vncError;
 char              *vncServerVersion = "RFB 003.003\n";
 char               vncClientVersion[13];
@@ -129,8 +132,8 @@ EVBLTask pollTask;
 
 void vncCheckForActivity() {
 	if (vncFD < 0) { return; }
-	if (!savedPB) { return; }
 	
+	static long oldVNCFD = -1;
 	static int first_time = 0;
 	long ready_fds;
 	unsigned long wr_fdset;
@@ -141,16 +144,22 @@ void vncCheckForActivity() {
 	
 	wr_fdset = 0;
 	rd_fdset = 1 << vncFD;
-	err_fdset = 1 << vncFD;
+	err_fdset = 0;
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 0;
 	
+	if (oldVNCFD != vncFD) {
+		printf("vncFD changed, %ld => %ld\n", oldVNCFD, vncFD);
+		oldVNCFD = vncFD;
+		first_time = 0;
+	}
+	
 	if (!first_time) {
-		printf("rd_fdset: %ld\n", rd_fdset);
+		printf("\nvncFD = %ld, rd_fdset: %ld\n", vncFD, rd_fdset);
 		first_time++;
 	}
 	
-	ready_fds = auxselect(vncFD + 1, &wr_fdset, &rd_fdset, &err_fdset, &timeout);
+	ready_fds = auxselect(vncFD + 1, &rd_fdset, &wr_fdset, &err_fdset, &timeout);
 	while (ready_fds > 0) {
 		if (first_time == 1) {
 			printf("saw a ready fd! rd_fset = %ld\n", rd_fdset);
@@ -168,11 +177,11 @@ void vncCheckForActivity() {
 		
 		wr_fdset = 0;
 		rd_fdset = 1 << vncFD;
-//		err_fdset = 1 << vncFD;
+		err_fdset = 1 << vncFD;
 		timeout.tv_sec = 0;
 		timeout.tv_usec = 0;
 
-		ready_fds = auxselect(1, &wr_fdset, &rd_fdset, &err_fdset, &timeout);
+		ready_fds = auxselect(1, &rd_fdset, &wr_fdset, &err_fdset, &timeout);
 	}
 	if (ready_fds < 0) {
 		// do some error handling I gue7ss
@@ -211,7 +220,7 @@ top:
 	if (ret < 0) {
 		printf("recv err: %ld fd %ld\n", sockerr(), sock);
 		
-		if (sockerr() == 4) { // EI(
+		if (sockerr() == 4) { // EINTR
 			goto top;
 		}
 	}
@@ -229,6 +238,9 @@ pascal void poller(VBLTaskPtr t) {
 }
 
 OSErr vncServerStart() {
+	struct sockaddr_in addr;
+	long ret;
+	long flags;
 
     VNCKeyboard::Setup();
 
@@ -254,7 +266,7 @@ OSErr vncServerStart() {
     fbUpdateRect.w = 0;
     fbUpdateRect.h = 0;
 
-    printf("Opening network driver\n");
+    /*printf("Opening network driver\n");
     vncError = tcp.begin(&epb_recv.pb);
     if (vncError != noErr) return vncError;
 
@@ -267,8 +279,45 @@ OSErr vncServerStart() {
     if(vncError != noErr) return vncError;
 
     tcp.then(&epb_recv.pb, tcpStreamCreated);
-    tcp.createStream(&epb_recv.pb, recvBuffer, kBufSize, nil);
-
+    tcp.createStream(&epb_recv.pb, recvBuffer, kBufSize, nil); */
+    
+    printf("Starting network...\n");
+    listenFD = auxsocket(AF_INET, SOCK_STREAM, 6);
+    
+    printf("listenFD => %ld\n", listenFD);
+    
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = 5900;
+	ret = auxbind(listenFD, (sockaddr*) &addr, sizeof(addr));
+	
+	flags = auxfcntl(listenFD, F_GETFL, 0);
+	flags |= O_NDELAY;
+	auxfcntl(listenFD, F_SETFL, flags);
+	
+	ret = auxlisten(listenFD, 1);
+	printf("listen returned %ld, errno %ld\n", ret, sockerr());
+	wantsRecv = tcpAcceptConnection;
+	vncFD = listenFD;
+	
+	/* struct timeval timeout = { 0 };
+	int call_waiting = 0;
+	unsigned long rd_fdset = 1 << vncFD;
+	
+	printf("rd_set => %ld\n", rd_fdset);
+	
+	while (!call_waiting) {
+		unsigned long rd_fdset = 1 << vncFD;
+		ret = auxselect(vncFD + 1, &rd_fdset, 0, 0, &timeout);
+		if (ret > 0) {
+			call_waiting = 1;
+		}
+	}
+	
+	SysBeep(1);
+	printf("FARTS\n"); */
+	
     return noErr;
 }
 
@@ -318,8 +367,20 @@ Boolean tcpSuccess(TCPiopb *pb) {
     return true;
 }
 
+pascal void tcpAcceptConnection(TCPiopb *pb) {
+	struct sockaddr_in cliaddr;
+	long addr_size = sizeof(cliaddr);
+	
+	printf("in tcpAcceptConnection...\n");
+
+	clientFD = auxaccept(listenFD, (sockaddr*)&cliaddr, &addr_size);
+	printf("clientFD => %ld\n", clientFD);
+	vncFD = clientFD;
+	tcpSendProtocolVersion(nil);
+}
+
 pascal void tcpStreamCreated(TCPiopb *pb) {
-    if (tcpSuccess(pb)) {
+    if (tcpSuccess(pb))  {
         vncState = VNC_WAITING;
         stream = tcp.getStream(pb);
 
@@ -341,9 +402,9 @@ unsigned long tcpExtractFD(TCPiopb *pb) {
 
 pascal void tcpSendProtocolVersion(TCPiopb *pb) {
     vncState = VNC_CONNECTED;
-    stream = tcp.getStream(pb);
+    /* stream = tcp.getStream(pb);
     vncFD = tcpExtractFD(pb);
-    savedPB = pb;
+    savedPB = pb; */
 
     #ifdef VNC_DEBUG
     	printf("socket fd is %ld", vncFD);

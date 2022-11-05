@@ -49,8 +49,8 @@ cerror:
 }
 
 asm long auxlisten(long socket, long backlog) {
-	movea.l 8(sp), a0
-	move.l 12(sp), d1
+	movea.l 4(sp), a0
+	move.l 8(sp), d1
 	moveq #0x4e, d0
 	trap #0xf
 	bcs.w err

@@ -31,6 +31,7 @@
 #include "OSUtilities.h"
 #include "GestaltUtils.h"
 #include "auxsock.h"
+#include "auxutils.h"
 
 #include <SIOUX.h>
 
@@ -74,6 +75,8 @@ main() {
     InitDialogs(0);
     FlushEvents(everyEvent, 0);
     InitCursor();
+    
+    auxinit(131);
     
     #ifdef USE_STDOUT
     SIOUXSettings.standalone = FALSE;

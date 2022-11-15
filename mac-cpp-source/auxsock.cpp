@@ -216,3 +216,56 @@ cerror:
 	movea.l d0, a0
 	rts
 }
+
+asm long auxwrite(long fd, char* buf, long len) {
+	moveq #4, d0
+	trap #0
+	bcc.s noerror
+	jmp cerror
+noerror:
+	rts
+	
+cerror:
+	move.l d0, scerrno
+	moveq #-1, d0
+	movea.l d0, a0
+	rts
+}
+
+asm long auxread(long fd, char* buf, long len) {
+	moveq #3, d0
+	trap #0
+	bcc.s noerror
+	jmp cerror
+noerror:
+	rts
+	
+cerror:
+	move.l d0, scerrno
+	moveq #-1, d0
+	movea.l d0, a0
+	rts
+}
+
+asm long auxfstat(long fd, struct stat* buf) {
+	movea.l 4(sp), a0
+	move.l 8(sp), d1
+	moveq #0x7c, d0
+	trap #0xf
+	bcs.w err
+	rts
+err:
+	jmp cerror
+	
+cerror:
+	move.l d0, scerrno
+	moveq #-1, d0
+	movea.l d0, a0
+	rts
+}
+
+asm long auxgetpid() {
+	move.l #20, d0
+	trap #0
+	rts
+}

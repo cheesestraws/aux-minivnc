@@ -38,6 +38,28 @@ struct sockaddr_in {
 // POSIX calls this O_NONBLOCK
 #define	O_NDELAY	0x00000004	/* Non-blocking I/O */
 
+#define	O_RDWR		002		/* open for read & write */
+
+struct	stat
+{
+	unsigned short		st_dev;
+	unsigned short		st_ino;
+	unsigned short		st_mode;
+	short				st_nlink;
+	unsigned short		st_uid;
+	unsigned short		st_gid;
+	unsigned short		st_rdev;
+	long				st_size;
+	long				st_atime;
+	unsigned long		st_inol;
+	long				st_mtime;
+	long				st_spare2;
+	long				st_ctime;
+	long				st_spare3;
+	long				st_blksize;
+	long				st_blocks;
+	long				st_spare4[2];
+};
 
 
 long sockerr();
@@ -53,6 +75,10 @@ long auxselect(long nfds, unsigned long* readfds, unsigned long* writefds, unsig
 long auxioctl(unsigned long x...);
 long auxopen(char* path, long flags);
 long auxclose(long fd);
+long auxwrite(long fd, char* buf, long len);
+long auxread(long fd, char* buf, long len);
+long auxfstat(long fd, struct stat* buf);
+long auxgetpid();
 
 
 #endif

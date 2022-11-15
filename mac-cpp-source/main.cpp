@@ -32,6 +32,7 @@
 #include "GestaltUtils.h"
 #include "auxsock.h"
 #include "auxutils.h"
+#include "msgbuf.h"
 
 #include <SIOUX.h>
 
@@ -111,6 +112,8 @@ main() {
             if(!SIOUXHandleOneEvent(&event))
         #endif
         DoEvent(&event);
+        do_deferred_output();
+        
         switch(vncServerError()) {
             case connectionClosing:
             case connectionTerminated:
@@ -140,8 +143,6 @@ main() {
     #ifndef VNC_HEADLESS_MODE
         Alert(129, NULL); // Sponsorship dialog box
     #endif
-
-	auxclose(uifd);
 
     return 0;
 }

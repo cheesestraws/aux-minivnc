@@ -25,13 +25,16 @@
 #include "auxsock.h"
 #include "vblutils.h"
 #include "lowmem.h"
+#include "msgbuf.h"
+#include "leak.h"
 #include "VNCServer.h"
 #include "VNCKeyboard.h"
 #include "VNCTypes.h"
 #include "VNCFrameBuffer.h"
 #include "VNCScreenHash.h"
 #include "VNCEncodeTRLE.h"
-#include "ChainedTCPHelper.h"
+
+typedef pascal void (*TCPCompletionPtr)();
 
 #define VNC_DEBUG
 
@@ -39,6 +42,8 @@
     #define printf ShowStatus
     int ShowStatus(const char* format, ...);
 #endif
+
+#define printf dprintf
 
 enum {
     VNC_STOPPED,
@@ -56,19 +61,19 @@ pascal void poller(VBLTaskPtr t);
 long auxsendw(long sock, char* msg, long length, long flags);
 long auxrecvw(long sock, char* msg, long length, long flags);
 
-pascal void tcpAcceptConnection(TCPiopb *pb);
-pascal void tcpStreamClosed(TCPiopb *pb);
-pascal void tcpSendProtocolVersion(TCPiopb *pb);
-pascal void tcpReceiveClientProtocolVersion(TCPiopb *pb);
-pascal void tcpRequestClientProtocolVersion(TCPiopb *pb);
-pascal void tcpSendSecurityHandshake(TCPiopb *pb);
-pascal void tcpRequestClientInit(TCPiopb *pb);
-pascal void tcpSendServerInit(TCPiopb *pb);
-pascal void vncPeekMessage(TCPiopb *pb);
-pascal void vncFinishMessage(TCPiopb *pb);
-pascal void vncStartSlowMessageHandling(TCPiopb *pb);
-pascal void vncHandleMessageSlowly(TCPiopb *pb);
-pascal void vncSendColorMapEntries(TCPiopb *pb);
+pascal void tcpAcceptConnection();
+pascal void tcpStreamClosed();
+pascal void tcpSendProtocolVersion();
+pascal void tcpReceiveClientProtocolVersion();
+pascal void tcpRequestClientProtocolVersion();
+pascal void tcpSendSecurityHandshake();
+pascal void tcpRequestClientInit();
+pascal void tcpSendServerInit();
+pascal void vncPeekMessage();
+pascal void vncFinishMessage();
+pascal void vncStartSlowMessageHandling();
+pascal void vncHandleMessageSlowly();
+pascal void vncSendColorMapEntries();
 
 void processMessageFragment(const char *src, unsigned long len);
 
@@ -83,12 +88,14 @@ void vncClientCutText(const VNCClientCutText &);
 void vncFBUpdateRequest(const VNCFBUpdateReq &);
 void vncDeferUpdateRequest(const VNCFBUpdateReq &req);
 void vncSendFBUpdate(Boolean incremental);
+void vncDoUpdate(const VNCFBUpdateReq &fbUpdateReq);
 
+pascal void vncHandleDeferredUpdate();
 pascal void vncGotDirtyRect(int x, int y, int w, int h);
-pascal void vncSendFBUpdateColorMap(TCPiopb *pb);
-pascal void vncSendFBUpdateHeader(TCPiopb *pb);
-pascal void vncSendFBUpdateRow(TCPiopb *pb);
-pascal void vncSendFBUpdateFinished(TCPiopb *pb);
+pascal void vncSendFBUpdateColorMap();
+pascal void vncSendFBUpdateHeader();
+pascal void vncSendFBUpdateRow();
+pascal void vncSendFBUpdateFinished();
 
 long               listenFD = -1;
 long               vncFD = -1;
@@ -101,7 +108,9 @@ char               vncClientInit;
 VNCServerInit      vncServerInit;
 VNCClientMessages  vncClientMessage;
 VNCServerMessages  vncServerMessage;
-TCPCompletionPtr wantsRecv;
+TCPCompletionPtr   wantsRecv = nil;
+TCPCompletionPtr   wantsSend = nil;
+Boolean after58 = false;
 
 wdsEntry           myWDS[3] = {0};
 
@@ -111,6 +120,8 @@ VNCRect            fbUpdateRect;
 Boolean            fbUpdateInProgress, fbUpdatePending;
 
 EVBLTask pollTask;
+
+long firstpid = -1;
 
 void vncCheckForActivity() {
 	if (vncFD < 0) { return; }
@@ -123,6 +134,8 @@ void vncCheckForActivity() {
 	unsigned long err_fdset;
 	struct timeval timeout;
 	TCPCompletionPtr wr;
+	TCPCompletionPtr ws;
+	struct stat blargh;
 	
 	wr_fdset = 0;
 	rd_fdset = 1 << vncFD;
@@ -130,19 +143,24 @@ void vncCheckForActivity() {
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 0;
 	
-	if (oldVNCFD != vncFD) {
-		printf("vncFD changed, %ld => %ld\n", oldVNCFD, vncFD);
-		oldVNCFD = vncFD;
-		first_time = 0;
+	static int iter = 0;
+	
+	/*if (!iter) {
+		printf("hello!  my pid is %ld\n", auxgetpid());
 	}
+	iter = (iter + 1) % 300; */
 	
 	if (!first_time) {
 		printf("\nvncFD = %ld, rd_fdset: %ld\n", vncFD, rd_fdset);
 		first_time++;
 	}
 	
+	if (auxgetpid() != firstpid) {
+		printf("!!! pid changed, bailing out early\n");
+	}
+	
 	ready_fds = auxselect(vncFD + 1, &rd_fdset, &wr_fdset, &err_fdset, &timeout);
-	while (ready_fds > 0) {
+	while (ready_fds > 0 && wantsRecv != nil) {
 		if (first_time == 1) {
 			printf("saw a ready fd! rd_fset = %ld\n", rd_fdset);
 			first_time++;
@@ -152,10 +170,13 @@ void vncCheckForActivity() {
 			printf("calling wantsRecv\n");
 			first_time++;
 		}
-		
+
+		if (auxgetpid() != firstpid) {
+			printf("!!! pid changed, bailing out early\n");
+		}
 		wr = wantsRecv;
 		wantsRecv = nil;
-		wr(nil);
+		wr();
 		
 		wr_fdset = 0;
 		rd_fdset = 1 << vncFD;
@@ -166,20 +187,62 @@ void vncCheckForActivity() {
 		ready_fds = auxselect(1, &rd_fdset, &wr_fdset, &err_fdset, &timeout);
 	}
 	if (ready_fds < 0) {
-		// do some error handling I gue7ss
+		// do some error handling I guess
 		printf("select returned %ld; errno %ld\n", ready_fds, sockerr());
 	}
+	
+	while (wantsSend != nil) {
+		if (auxgetpid() != firstpid) {
+			printf("!!! pid changed, bailing out early\n");
+		}
+			
+		ws = wantsSend;
+		wantsSend = nil;
+		ws();
+	}
+}
+
+Boolean waitWriteable(long fd);
+Boolean waitWriteable(long fd) {
+	unsigned long write_fds = 1 << fd;
+	long ret = auxselect(fd + 1, 0, &write_fds, 0, 0);
+	if (ret < 0) {
+		printf("waitWriteable: select failed, errno %ld fd %ld", sockerr(), fd);
+	}
+	return (ret > 0);
 }
 
 long auxsendw(long sock, char* msg, long length, long flags) {
 	long ret;
-	ret = auxsend(sock, msg, length, flags);
+	long oldflags;
+	long newflags;
+	long errno;
+
+	// force blocking	
+	oldflags = auxfcntl(sock, F_GETFL, 0);
+	newflags = oldflags & ~O_NDELAY;
+	auxfcntl(sock, F_SETFL, newflags);
 	
-	if (ret < 0 && sockerr() != 32) {
-		printf("send err: %ld fd %ld\n", sockerr(), sock);
+top:
+	ret = auxsend(sock, msg, length, 0);
+	errno = sockerr();
+	
+		
+	if (ret < 0 && errno == 4) { // EINTR
+		goto top;
+	} else if (ret < 0) {
+		printf("send err: %ld fd %ld pid %ld (was %ld)\n", errno, sock, auxgetpid(), firstpid);
+		
+		
+		init_leak();
+		leak_fd_type(sock);
+		close_leak();
+		after58 = true;
 	} else if (ret < length) {
 		printf("sent too little: %ld vs %ld\n", ret, length);
 	}
+	
+	auxfcntl(sock, F_SETFL, oldflags);
 	
 	return ret;
 }
@@ -196,7 +259,7 @@ long auxrecvw(long sock, char* msg, long length, long flags) {
 	
 top:
 	ret = auxrecv(sock, msg, length, flags);
-	
+
 	if (ret < 0) {
 		printf("recv err: %ld fd %ld\n", sockerr(), sock);
 		
@@ -206,6 +269,13 @@ top:
 	}
 	
 	auxfcntl(sock, F_SETFL, oldflags);
+	
+	if (after58) {
+		after58 = false;
+		init_leak();
+		leak_fd_type(sock);
+		close_leak();
+	}
 		
 	return ret;
 }
@@ -220,6 +290,12 @@ OSErr vncServerStart() {
 	struct sockaddr_in addr;
 	long ret;
 	long flags;
+	
+	firstpid = auxgetpid();
+	printf("first pid %ld\n", firstpid);
+
+	vncState = VNC_STARTING;
+
 
     VNCKeyboard::Setup();
 
@@ -248,7 +324,10 @@ OSErr vncServerStart() {
     printf("Starting network...\n");
     listenFD = auxsocket(AF_INET, SOCK_STREAM, 6);
     
-    printf("listenFD => %ld\n", listenFD);
+    printf("listenFD => %ld (pid %ld)\n", listenFD, auxgetpid());
+    init_leak();
+    leak_fd_type(listenFD);
+    close_leak();
     
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -262,6 +341,9 @@ OSErr vncServerStart() {
 	
 	ret = auxlisten(listenFD, 1);
 	printf("listen returned %ld, errno %ld\n", ret, sockerr());
+	
+	// vncState = VNC_WAITING;
+	
 	wantsRecv = tcpAcceptConnection;
 	vncFD = listenFD;
 	
@@ -273,7 +355,7 @@ OSErr vncServerStop() {
         vncState = VNC_STOPPING;
         vncFD = -1;
         
-        if (clientFD > -1) {
+        /* if (clientFD > -1) {
         	// todo: neat shutdown
         	auxclose(clientFD);
         	clientFD = -1;
@@ -282,7 +364,7 @@ OSErr vncServerStop() {
         if (listenFD > -1) {
         	auxclose(listenFD);
         	clientFD = -1;
-        }
+        } */
         
         vncState = VNC_STOPPED;
     }
@@ -308,23 +390,28 @@ OSErr vncServerError() {
     }
 }
 
-pascal void tcpAcceptConnection(TCPiopb *pb) {
+pascal void tcpAcceptConnection() {
 	struct sockaddr_in cliaddr;
 	long addr_size = sizeof(cliaddr);
 	
 	printf("in tcpAcceptConnection...\n");
 
 	clientFD = auxaccept(listenFD, (sockaddr*)&cliaddr, &addr_size);
-	printf("clientFD => %ld\n", clientFD);
+	printf("clientFD => %ld (pid %ld)\n", clientFD, auxgetpid());
+	init_leak();
+	leak_fd_type(clientFD);
+	close_leak();
 	vncFD = clientFD;
-	tcpSendProtocolVersion(nil);
+	wantsSend = tcpSendProtocolVersion;
+	
+//	vncState = VNC_CONNECTED;
 }
 
-pascal void tcpStreamClosed(TCPiopb *pb) {
+pascal void tcpStreamClosed() {
     vncState = VNC_STOPPED;
 }
 
-pascal void tcpSendProtocolVersion(TCPiopb *pb) {
+pascal void tcpSendProtocolVersion() {
     vncState = VNC_CONNECTED;
 
     #ifdef VNC_DEBUG
@@ -336,12 +423,12 @@ pascal void tcpSendProtocolVersion(TCPiopb *pb) {
     auxsendw(vncFD, (Ptr) vncServerVersion, strlen(vncServerVersion), 0);
 }
 
-pascal void tcpRequestClientProtocolVersion(TCPiopb *pb) {
+pascal void tcpRequestClientProtocolVersion() {
     auxrecvw(vncFD, vncClientVersion, 12, 0);
-    tcpSendSecurityHandshake(pb);
+    wantsSend = tcpSendSecurityHandshake;
 }
 
-pascal void tcpSendSecurityHandshake(TCPiopb *pb) {
+pascal void tcpSendSecurityHandshake() {
     #ifdef VNC_DEBUG
         printf("Client VNC Version: %s\n", vncClientVersion);
     #endif
@@ -352,12 +439,12 @@ pascal void tcpSendSecurityHandshake(TCPiopb *pb) {
     auxsendw(vncFD, (Ptr) &vncSecurityHandshake, sizeof(long), 0);
 }
 
-pascal void tcpRequestClientInit(TCPiopb *pb) {
+pascal void tcpRequestClientInit() {
     auxrecvw(vncFD, (Ptr) &vncClientInit, 1, 0);
-    tcpSendServerInit(pb);
+    wantsSend = tcpSendServerInit;
 }
 
-pascal void tcpSendServerInit(TCPiopb *pb) {
+pascal void tcpSendServerInit() {
     #ifdef VNC_DEBUG
         printf("Client Init: %d\n", vncClientInit);
     #endif
@@ -389,6 +476,7 @@ pascal void tcpSendServerInit(TCPiopb *pb) {
 
 void processMessageFragment(const char *src, unsigned long len) {
     static char *dst = (char *)&vncClientMessage;
+    char* ctx;
 
     /**
      * Process unfragmented mPointerEvent and mFBUpdateRequest messages,
@@ -454,6 +542,13 @@ void processMessageFragment(const char *src, unsigned long len) {
             case mSetEncodings:    msgSize = getSetEncodingFragmentSize(bytesRead); break;
             default:
                 printf("Invalid message: %d\n", vncClientMessage.message);
+                ctx = (char *)&vncClientMessage;
+                
+                printf ("  context: %02x %02x %02x %02x\n",
+                	(int)(ctx[0]), (int)(ctx[1]),
+                	(int)(ctx[2]), (int)(ctx[3])
+                );
+                
                 return;
         }
 
@@ -514,7 +609,7 @@ void processSetEncodingsFragment(unsigned long bytesRead, char *&dst) {
     }
 }
 
-pascal void vncStartSlowMessageHandling(TCPiopb *pb) {
+pascal void vncStartSlowMessageHandling() {
     long len;
     len = auxrecv(vncFD, horribleBuffer, 512, 0);
     wantsRecv = vncStartSlowMessageHandling;
@@ -612,6 +707,12 @@ void vncDoDeferredUpdate(const VNCFBUpdateReq &fbUpdateReq) {
         vncSendFBUpdate(allowIncremental && fbUpdateReq.incremental);
 }
 
+void vncDoUpdate(const VNCFBUpdateReq &fbUpdateReq);
+void vncDoUpdate(const VNCFBUpdateReq &fbUpdateReq) {
+        fbUpdateRect = fbUpdateReq.rect;
+        vncSendFBUpdate(allowIncremental && fbUpdateReq.incremental);
+}
+
 // Callback for the VBL task
 pascal void vncGotDirtyRect(int x, int y, int w, int h) {
     if(fbUpdateInProgress) {
@@ -625,7 +726,7 @@ pascal void vncGotDirtyRect(int x, int y, int w, int h) {
         fbUpdateRect.y = y;
         fbUpdateRect.w = w;
         fbUpdateRect.h = h;
-        vncSendFBUpdateColorMap(nil);
+        vncSendFBUpdateColorMap();
     }
 }
 
@@ -644,11 +745,11 @@ void vncSendFBUpdate(Boolean incremental) {
             vncError = err;
         }
     } else {
-        vncSendFBUpdateColorMap(nil);
+        wantsSend = vncSendFBUpdateColorMap;
     }
 }
 
-pascal void vncSendFBUpdateColorMap(TCPiopb *pb) {
+pascal void vncSendFBUpdateColorMap() {
 	int ret;
     fbUpdateInProgress = true;
     fbUpdatePending = false;
@@ -667,13 +768,13 @@ pascal void vncSendFBUpdateColorMap(TCPiopb *pb) {
 
         auxsendw(vncFD, (Ptr) &vncServerMessage, sizeof(VNCSetColorMapHeader), 0);
         auxsendw(vncFD, (Ptr) VNCFrameBuffer::getPalette(), paletteSize * sizeof(VNCColor), 0);
-        vncSendFBUpdateHeader(pb);
+        wantsSend = vncSendFBUpdateHeader;
     } else {
-        vncSendFBUpdateHeader(pb);
+        wantsSend = vncSendFBUpdateHeader;
     }
 }
 
-pascal void vncSendFBUpdateHeader(TCPiopb *pb) {
+pascal void vncSendFBUpdateHeader() {
     fbUpdateInProgress = true;
     fbUpdatePending = false;
 
@@ -703,10 +804,10 @@ pascal void vncSendFBUpdateHeader(TCPiopb *pb) {
     vncServerMessage.fbUpdate.encodingType = mTRLEEncoding;
     auxsendw(vncFD, (Ptr) &vncServerMessage, sizeof(VNCFBUpdate), 0);
 
-    vncSendFBUpdateRow(pb);
+    wantsSend = vncSendFBUpdateRow;
 }
 
-pascal void vncSendFBUpdateRow(TCPiopb *pb) {
+pascal void vncSendFBUpdateRow() {
 	int i;
 	int ret;
     // Add the termination
@@ -717,30 +818,37 @@ pascal void vncSendFBUpdateRow(TCPiopb *pb) {
     const Boolean gotMore = VNCEncoder::getChunk(fbUpdateRect.x, fbUpdateRect.y, fbUpdateRect.w, fbUpdateRect.h, myWDS);
     ret = auxsendw(vncFD, myWDS[0].ptr, myWDS[0].length, 0);
     if (ret < 0 && sockerr() != 32) {
-    	printf("send err: %ld\n", sockerr());
+    	printf("send err: %ld (%ld)\n", sockerr(), auxgetpid());
     }
     if (gotMore) {
-    	vncSendFBUpdateRow(pb);
+    	wantsSend = vncSendFBUpdateRow;
     } else {
         fbUpdateRect.w = fbUpdateRect.h = 0;
-        vncSendFBUpdateFinished(pb);
+        wantsSend = vncSendFBUpdateFinished;
     }
 }
 
-pascal void vncSendFBUpdateFinished(TCPiopb *pb) {
+pascal void vncSendFBUpdateFinished() {
     fbUpdateInProgress = false;
     if(fbUpdatePending) {
         vncSendFBUpdate(true);
     }
 }
 
+
 Boolean queuedFBUpdate = false;
 VNCFBUpdateReq deferredRequest;
+
+pascal void vncHandleDeferredUpdate() {
+	fbUpdateRect = deferredRequest.rect;
+	vncSendFBUpdate(allowIncremental && deferredRequest.incremental);
+}
 
 void vncDeferUpdateRequest(const VNCFBUpdateReq &req) {
 	// defer an update to be run after the next event loop
 	deferredRequest = req;
-	queuedFBUpdate = true;
+	//queuedFBUpdate = true;
+	wantsSend = vncHandleDeferredUpdate;
 }
 
 void yieldToVNCIfNecessary() {
@@ -748,7 +856,7 @@ void yieldToVNCIfNecessary() {
 		
 	// Do we have a queued update?
 	if (queuedFBUpdate) {
-		printf("attempting deferred update\n");
+		//printf("attempting deferred update\n");
 		queuedFBUpdate = false;
 		vncDoDeferredUpdate(deferredRequest);
 	}

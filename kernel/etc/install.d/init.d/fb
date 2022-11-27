@@ -1,0 +1,27 @@
+#!/bin/sh
+
+PATH=/bin:/usr/bin:/etc:/usr/etc
+
+#
+# 	Parse "-k kernelfile" flag
+#
+KERNEL=""
+if [ "$1" = "-k" ]; then
+    shift
+    KERNEL=$1
+    shift
+fi;
+
+while test x$1 != x"";
+do
+	case $1 in
+		-M)	/bin/rm -f /dev/fb0
+			/etc/mknod /dev/fb0 c $2 0
+			/bin/chown bin /dev/fb0
+			/bin/chgrp bin /dev/fb0
+			/bin/chmod 600 /dev/fb0
+			;;
+		*)	;;
+	esac
+	shift 2
+done

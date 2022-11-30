@@ -6,6 +6,11 @@
 #include <sys/sysmacros.h>
 #include <sys/uio.h>
 #include <sys/user.h>
+#include <sys/mouse.h>
+#include <sys/user.h>
+
+#include <mac/quickdraw.h>
+#include <mac/events.h>
 
 #include "fb.h"
 
@@ -37,6 +42,109 @@ int fb_getCLUTFor(v) struct video* v; {
 	ret = kallDriver(v, csCode, &fb_vde, 2);
 	
 	return ret;
+}
+
+/* mouse utilities */
+extern int ui_devices;
+typedef int (*mousecall_t)();
+extern char* ui_lowaddr;
+extern int ui_active;
+
+// some low memory globals
+#define MBSTATE 0x172
+#define MTEMP 0x828
+#define RAWMOUSE 0x82C
+#define CRSRNEW 0x8CE
+#define CRSRCOUPLE 0x8CF
+
+
+void fb_get_mouse_mode_and_callback(id, mode, call)
+	int id; int* mode; mousecall_t* call; {
+	
+	int s;
+	int m;
+	mousecall_t c;
+
+	/* this is an awful hack.  These are hidden in mouse.o's static
+	   scope, and we only have 'swap' calls available externally.  So
+	   we swap dummy data in, make a note of what we get back, then swap
+	   the originals back, all while keeping interrupts disabled. */
+	   
+	s = splhi();
+	
+	// Get the mouse mode
+	m = mouse_op(id, MOUSE_OP_MODE, 0);
+	mouse_op(id, MOUSE_OP_MODE, m);
+	
+	// And the callback
+	c = (mousecall_t)mouse_op(id, MOUSE_OP_INTR, (void*)0);
+	mouse_op(id, MOUSE_OP_INTR, c);
+		
+	splx(s);
+	
+	*mode = m;
+	*call = c;
+}
+
+
+void fb_ui_mouse(x, y, button) short x; short y; short button; {
+	Point p;
+	int active;
+	char oldBtn;
+	char newBtn;
+	
+	p.h = x;
+	p.v = y;
+	
+	// Poke the mouse position directly into "low" memory
+	*(Point*)(&ui_lowaddr[MTEMP]) = p;
+	*(Point*)(&ui_lowaddr[RAWMOUSE]) = p;
+	ui_lowaddr[CRSRNEW] = ui_lowaddr[CRSRCOUPLE];
+	
+	// Now do something sensible (?) with the button
+	oldBtn = ui_lowaddr[MBSTATE];
+
+	if (button) {
+		newBtn = 0x00;
+	} else {
+		newBtn = 0x80;
+	}
+	
+	if (oldBtn != newBtn) {
+		ui_lowaddr[MBSTATE] = newBtn;
+		active = ui_active;
+		
+		if (button) {
+			UI_postevent(0, active, mouseDown, 0);
+		} else {
+			UI_postevent(0, active, mouseUp, 0);
+		}
+	}
+	
+}
+
+void move_mouse_to(id, x, y, button) int id; short x; short y; short button; {
+	int mode;
+	mousecall_t call;
+	
+	// if the decices are attached to a uinter layer, poke the mac
+	// environment directly.
+	if (ui_devices) {
+		fb_ui_mouse(x, y, button);
+		return;
+	}	
+	
+	fb_get_mouse_mode_and_callback(id, &mode, &call);
+	
+	mouse_x[id] = x;
+	mouse_y[id] = y;
+	mouse_button[id] = button;
+	
+	
+	// Now we do the magic call that the higher layers expect
+	if (mode) {
+		(*call)(id,MOUSE_CHANGE,0,3);
+	}
 }
 
 /* driver functions */
@@ -89,6 +197,8 @@ int fb_ioctl(dev, cmd, addr, arg)
 	struct VPBlock* psrc;
 	struct VPBlock* pdst;
 	struct fb_clut_chunk* cdst;
+	int mouse_id;
+	struct fb_mouse* meese;
 	
 	int dev_index;
 	
@@ -146,6 +256,14 @@ int fb_ioctl(dev, cmd, addr, arg)
 			cdst->clut[i] = fb_c[base + i];
 		}
 		
+		return 0;
+		
+	case FB_MOVE_MOUSE:
+		vsrc = video_desc[dev_index];
+		mouse_id = vsrc->video_mouse_ind;
+		meese = (struct fb_mouse*)addr;
+		
+		move_mouse_to(mouse_id, meese->x, meese->y, meese->button);
 		return 0;
 	}
 

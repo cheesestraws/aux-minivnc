@@ -42,6 +42,7 @@ int main() {
 	struct video v;
 	struct VPBlock b;
 	struct fb_clut_chunk c;
+	struct fb_mouse m;
 	int ret;
 	ColorSpec* cs;
 	int i, j;
@@ -92,7 +93,7 @@ int main() {
 		}
 	} */
 		
-	gm_size = v.video_mem_x * v.video_mem_y;
+	/* gm_size = v.video_mem_x * v.video_mem_y;
 	greymap = (unsigned char*)malloc(gm_size);
 	if (!greymap) {
 		printf("malloc farted\n");
@@ -114,6 +115,14 @@ int main() {
 		cs = &lut[greymap[i]];
 		
 		printf("%d %d %d ", cs->rgb.red, cs->rgb.green, cs->rgb.blue);
+	} */
+	
+	m.x = 200;
+	m.y = 200;
+	m.button = 1;
+	ret = ioctl(fb_fd, FB_MOVE_MOUSE, &m);
+	if (ret < 0) {
+		printf("ioctl m: error %d\n", errno);
 	}
 	
 	printf("\n");

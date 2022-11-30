@@ -358,10 +358,23 @@ void vnc_evt_set_pixel_format(session* sess, VNCSetPixFormat* evt) {
 }
 
 void vnc_evt_pointer(session* sess, VNCPointerEvent* evt) {
+	struct fb_mouse newPosition;
+	int ret;
+
 	sess->last_checkpoint = "vnc_evt_pointer";
+	
 
 	// do nowt
 	TODO("pointer event");
+	
+	newPosition.x = evt->x;
+	newPosition.y = evt->y;
+	newPosition.button = (evt->btnMask != 0);
+	
+	ret = ioctl(sess->fb_fd, FB_MOVE_MOUSE, &newPosition);
+	if (ret < 0) {
+		session_err(sess, "Could not move pointer");
+	}
 }
 
 // Send the colourmap of the associated framebuffer out to the VNC connection

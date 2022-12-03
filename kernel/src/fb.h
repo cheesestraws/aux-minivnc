@@ -28,6 +28,9 @@ struct fb_mouse {
 #define FB_MODE _IOWR('F', 1, struct VPBlock)
 #define FB_CLUT_CHUNK _IOWR('F', 2, struct fb_clut_chunk)
 #define FB_MOVE_MOUSE _IOW('F', 3, struct fb_mouse)
+#define FB_KB_MODE _IOR('F', 4, int)
+#define FB_KB_KCHR _IOW('F', 5, int)
+
 
 
 #endif

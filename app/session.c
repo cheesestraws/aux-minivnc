@@ -1,6 +1,7 @@
 #include "session.h"
 #include "vnc_types.h"
 #include "frame_buffer.h"
+#include "keyboard_mess.h"
 
 #include "../kernel/src/fb.h"
 
@@ -342,9 +343,19 @@ void vnc_evt_client_cut_text(session* sess, VNCClientCutText* evt) {
 }
 
 void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
+	keypresses k;
+
 	sess->last_checkpoint = "vnc_evt_key";
 	
-	TODO("key");
+	k = sym_to_keypresses(evt->key);
+	
+	if (evt->down) {
+		printf("key_down:");
+		do_key_down(sess, k);
+	} else {
+		printf("key_up:");
+		do_key_up(sess, k);
+	}
 }
 
 void vnc_evt_set_pixel_format(session* sess, VNCSetPixFormat* evt) {

@@ -8,6 +8,7 @@
 #include <sys/user.h>
 #include <sys/mouse.h>
 #include <sys/user.h>
+#include <sys/key.h>
 
 #include <mac/quickdraw.h>
 #include <mac/events.h>
@@ -147,6 +148,43 @@ void move_mouse_to(id, x, y, button) int id; short x; short y; short button; {
 	}
 }
 
+/* keyboard gubbins */
+typedef int (*keycall_t)();
+
+int fb_kb_mode(id) int id; {
+	int x;
+	int mode;
+	x = splhi();
+	
+	mode = key_op(id, KEY_OP_MODE, 0);
+	key_op(id, KEY_OP_MODE, mode);
+	
+	splx(x);
+	
+	return mode;
+}
+
+keycall_t fb_kb_call(id) int id; {
+	int x;
+	keycall_t c;
+	x = splhi();
+	
+	c = (keycall_t)key_op(id, KEY_OP_INTR, 0);
+	key_op(id, KEY_OP_INTR, c);
+	
+	splx(x);
+	
+	return c;
+}
+
+
+void fb_kb_kchr(id, kchr) int id; int kchr; {
+	keycall_t keycall;
+	
+	keycall = fb_kb_call(id);
+	(*keycall)(id, KC_CHAR, kchr, 0);
+}
+
 /* driver functions */
 
 int fb_init() {
@@ -242,7 +280,7 @@ int fb_ioctl(dev, cmd, addr, arg)
 		return 0;
 		
 	case FB_CLUT_CHUNK:
-		vsrc = video_index[0];
+		vsrc = video_index[dev_index];
 		cdst = (struct fb_clut_chunk*)addr;
 		
 		cdst->clut[0] = 25;
@@ -264,6 +302,20 @@ int fb_ioctl(dev, cmd, addr, arg)
 		meese = (struct fb_mouse*)addr;
 		
 		move_mouse_to(mouse_id, meese->x, meese->y, meese->button);
+		return 0;
+		
+	case FB_KB_MODE:
+		vsrc = video_desc[dev_index];
+		i = fb_kb_mode(vsrc->video_key_ind);
+		*((int*)addr) = i;
+		
+		return 0;
+		
+	case FB_KB_KCHR:
+		vsrc = video_desc[dev_index];
+		i = *((int*)addr);
+		fb_kb_kchr(vsrc->video_key_ind, i);
+		
 		return 0;
 	}
 

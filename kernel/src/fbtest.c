@@ -117,13 +117,20 @@ int main() {
 		printf("%d %d %d ", cs->rgb.red, cs->rgb.green, cs->rgb.blue);
 	} */
 	
-	m.x = 200;
+	/*m.x = 200;
 	m.y = 200;
 	m.button = 1;
 	ret = ioctl(fb_fd, FB_MOVE_MOUSE, &m);
 	if (ret < 0) {
 		printf("ioctl m: error %d\n", errno);
-	}
+	} */
+	
+	ret = ioctl(fb_fd, FB_KB_MODE, &i);
+	
+	printf("kb mode %d\n", i);
+	
+	i = 0;
+	ret = ioctl(fb_fd, FB_KB_KCHR, &i);
 	
 	printf("\n");
 	

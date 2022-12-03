@@ -374,10 +374,6 @@ void vnc_evt_pointer(session* sess, VNCPointerEvent* evt) {
 
 	sess->last_checkpoint = "vnc_evt_pointer";
 	
-
-	// do nowt
-	TODO("pointer event");
-	
 	newPosition.x = evt->x;
 	newPosition.y = evt->y;
 	newPosition.button = (evt->btnMask != 0);
@@ -392,16 +388,20 @@ void vnc_evt_pointer(session* sess, VNCPointerEvent* evt) {
 void vnc_upd_send_colourmap(session* sess) {
 	VNCSetColourMapHeader hdr;
 	
-	hdr.message = mSetCMapEntries;
-	hdr.padding = 0;
-	hdr.firstColour = 0;
-	hdr.numColours = 256;
+	if (sess->fb.clut_changed) {	
+		hdr.message = mSetCMapEntries;
+		hdr.padding = 0;
+		hdr.firstColour = 0;
+		hdr.numColours = 256;
 	
-	sendw(sess, (char*)&hdr, sizeof(hdr), 0);
-	sendw(sess, (char*)sess->fb.vnc_clut, 256 * sizeof(VNCColour), 0);
+		sendw(sess, (char*)&hdr, sizeof(hdr), 0);
+		sendw(sess, (char*)sess->fb.vnc_clut, 256 * sizeof(VNCColour), 0);
+	
+		sess->fb.clut_changed = 0;
+	}
 }
 
-void vnc_upd_send_hdr_raw(session* sess) {
+void vnc_upd_send_hdr_raw(session* sess, char incremental) {
 	VNCFBUpdate hdr;
 	
 	hdr.message = mFBUpdate;
@@ -413,24 +413,37 @@ void vnc_upd_send_hdr_raw(session* sess) {
 	hdr.rect.h = sess->video_info.video_scr_y;
 	hdr.encodingType = mRawEncoding;
 	
+	if (incremental) {
+		hdr.rect.y = sess->fb.last_dirty.y1;
+		hdr.rect.h = sess->fb.last_dirty.y2 + 1 - sess->fb.last_dirty.y1;
+		
+		printf("incremental: y %d h %d\n", hdr.rect.y, hdr.rect.h);
+	}
+	
 	sendw(sess, (char*)&hdr, sizeof(hdr), 0);
 }
 
-void vnc_send_body_raw(session* sess) {
-	sendw(sess, sess->fb.frame_to_send, sess->fb.frame_size, 0);
+void vnc_send_body_raw(session* sess, char incremental) {
+	int start;
+	int size;
+	
+	if (!incremental) {
+		sendw(sess, sess->fb.frame_to_send, sess->fb.frame_size, 0);
+	} else {
+		start = sess->fb.last_dirty.y1 * sess->video_info.video_scr_x;
+		size = (sess->fb.last_dirty.y2 + 1 - sess->fb.last_dirty.y1) * sess->video_info.video_scr_x;
+		
+		sendw(sess, sess->fb.frame_to_send + start, size, 0);
+	}
 }
 
 void vnc_evt_update_request(session* sess, VNCFBUpdateReq* evt) {
 	sess->last_checkpoint = "vnc_evt_update_request";
-
-	// do nowt
-	TODO("update request\n");
 	
 	fb_update(sess, &sess->fb);
 	
-	TODO("we're always updating the clut, we shouldn't");
 	vnc_upd_send_colourmap(sess);
 	
-	vnc_upd_send_hdr_raw(sess);
-	vnc_send_body_raw(sess);
+	vnc_upd_send_hdr_raw(sess, evt->incremental);
+	vnc_send_body_raw(sess, evt->incremental);
 }

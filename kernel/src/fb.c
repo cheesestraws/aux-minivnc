@@ -14,6 +14,7 @@
 #include <mac/events.h>
 
 #include "fb.h"
+#include "crc32.h"
 
 /* utility functions */
 
@@ -315,6 +316,14 @@ int fb_ioctl(dev, cmd, addr, arg)
 		vsrc = video_desc[dev_index];
 		i = *((int*)addr);
 		fb_kb_kchr(vsrc->video_key_ind, i);
+		
+		return 0;
+	
+	case FB_CLUT_HASH:
+		vsrc = video_desc[dev_index];
+		fb_getCLUTFor(vsrc);
+		i = fb_crc32buf(fb_c, 2048);
+		*((int*)addr) = i;
 		
 		return 0;
 	}

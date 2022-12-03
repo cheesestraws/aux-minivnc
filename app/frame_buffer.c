@@ -1,6 +1,7 @@
 #include <sys/ioctl.h>
 
 #include "session.h"
+#include "timer.h"
 #include "../kernel/src/fb.h"
 
 void fbTODO(char* str) {
@@ -22,8 +23,11 @@ void fb_get_video_info(session *sess, VPBlock* vp, struct video* vi) {
 }
 
 void fb_init(session *sess, frame_buffer *fb) {
-	// get the video mode, we need to know how much memory to allocate
 	
+	// set all fields to 0
+	memset((char*)fb, '\0', sizeof(frame_buffer));
+	
+	// get the video mode, we need to know how much memory to allocate
 	fb_get_video_info(sess, &fb->vp, &fb->vi);
 	
 	if (fb->vp.vpPixelSize != 8) {
@@ -56,9 +60,18 @@ void fb_update_clut(session *sess, frame_buffer *fb) {
 	int ret;
 	struct fb_clut_chunk c;
 
-	// TODO: Optimise this later
-	fbTODO("fb_update_clut is still pessimal");
+	// See if the CLUT has changed
+	ret = ioctl(sess->fb_fd, FB_CLUT_HASH, &i);
+	if (ret < 0) {
+		session_err(sess, "FB_CLUT_HASH failed");
+	}
+	if (fb->clut_hash == i) {
+		return;
+	}
 	
+	fb->clut_hash = i;
+	fb->clut_changed = 1;
+
 	for (i = 0; i < 32; i++) {
 		c.chunk = i;
 		ret = ioctl(sess->fb_fd, FB_CLUT_CHUNK, &c);
@@ -81,25 +94,64 @@ void fb_update(session *sess, frame_buffer *fb) {
 	int i;
 	char* src;
 	char* dst;
+	long us;
+	int changed = 0;
+	int lineChanged = 0;
+	unsigned int lowYChange = 0xFFFFFFFF;
+	unsigned int highYChange = 0;
 	
 	// First, update the CLUT
 	fb_update_clut(sess, fb);
 	
 	// Then, copy screen memory out.
+	us = start_us();
 	ret = read(sess->fb_fd, fb->screen_mirror, fb->mirror_size);
-	printf("fb_update: read %d bytes\n", ret);
+	print_time_since("fb_update/read", us);
 	
 	// Let's pretend that nothing other than 8 bit depth exists for the
 	// moment.  Copy the screen mirror into the bitmap to send.
 
+	us = start_us();
 	src = fb->screen_mirror;
 	dst = fb->frame_to_send;
 	for (i = 0; i < fb->vi.video_scr_y; i++) {
-		memcpy(dst, src, fb->vi.video_scr_x);
+		//memcpy(dst, src, fb->vi.video_scr_x);
+		lineChanged = fb_copy_row(dst, src, fb->vi.video_scr_x);
+		changed = changed || lineChanged;
+		if (lineChanged && (i < lowYChange)) {
+			lowYChange = i;
+		}
+		if (lineChanged && (i > highYChange)) {
+			highYChange = i;
+		}
+		
 		dst += fb->vi.video_scr_x;
 		src += fb->vi.video_mem_x;
 	}
+	print_time_since("fb_update/copy", us);
 	
-	printf("copied\n");
+	if (changed) {
+		fb->last_changed = changed;
+		fb->last_dirty.y1 = lowYChange;
+		fb->last_dirty.y2 = highYChange;
+	} else {
+		fb->last_changed = changed;
+		fb->last_dirty.y1 = 0;
+		fb->last_dirty.y2 = 0;
+	}
 }
 
+int fb_copy_row(char* dst, char* src, int width) {
+	register int wi = width / 4;
+	register int i = 0;
+	int changed = 0;
+	
+	for (i = 0; i < wi; i++) {
+		if (((int*)dst)[i] != ((int*)src)[i]) {
+			((int*)dst)[i] = ((int*)src)[i];
+			changed = 1;
+		}
+	}
+	
+	return changed;
+}

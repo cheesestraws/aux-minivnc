@@ -1,6 +1,7 @@
 #include "session.h"
 #include "vnc_types.h"
 #include "frame_buffer.h"
+#include "frame_buffer_ops.h"
 #include "keyboard_mess.h"
 
 #include "../kernel/src/fb.h"
@@ -80,7 +81,7 @@ void handle_session(int sock) {
 	}
 	
 cleanup:
-	fb_free(sess.fb);
+	fb_free(&sess.fb);
 	close(sess.sock);
 	close(sess.fb_fd);
 }
@@ -401,7 +402,7 @@ void vnc_upd_send_colourmap(session* sess) {
 	}
 }
 
-void vnc_upd_send_hdr_raw(session* sess, char incremental) {
+void vnc_upd_send_hdr_raw(session* sess, char* incremental) {
 	VNCFBUpdate hdr;
 	
 	hdr.message = mFBUpdate;
@@ -413,11 +414,30 @@ void vnc_upd_send_hdr_raw(session* sess, char incremental) {
 	hdr.rect.h = sess->video_info.video_scr_y;
 	hdr.encodingType = mRawEncoding;
 	
-	if (incremental) {
+	// Let's work out whether we really want to do an
+	// incremental update: if the CLUT has changed, or if more than a
+	// quarter of the screen has changed, it gives a better user experience
+	// to throw the whole screen at send(), even though it's technically
+	// slower.  This is because the transmit time is longer, but the time
+	// it takes the VNC server to draw it is shorter, so it "feels" snappier.
+	
+	if (sess->fb.clut_changed) {
+		*incremental = 0;
+	}
+	if (FB_RECT_HEIGHT(sess->fb.last_dirty) > (hdr.rect.h / 2) &&
+	    FB_RECT_WIDTH(sess->fb.last_dirty) > (hdr.rect.w / 2)) {
+	
+		*incremental = false;
+	}
+	
+	// if we still want to do an incremental update, fiddle with the
+	// update header accordingly.
+	if (*incremental) {
 		hdr.rect.y = sess->fb.last_dirty.y1;
-		hdr.rect.h = sess->fb.last_dirty.y2 + 1 - sess->fb.last_dirty.y1;
+		hdr.rect.h = FB_RECT_HEIGHT(sess->fb.last_dirty);
 		
-		printf("incremental: y %d h %d\n", hdr.rect.y, hdr.rect.h);
+		hdr.rect.x = sess->fb.last_dirty.x1;
+		hdr.rect.w = FB_RECT_WIDTH(sess->fb.last_dirty);
 	}
 	
 	sendw(sess, (char*)&hdr, sizeof(hdr), 0);
@@ -425,15 +445,23 @@ void vnc_upd_send_hdr_raw(session* sess, char incremental) {
 
 void vnc_send_body_raw(session* sess, char incremental) {
 	int start;
-	int size;
+	int size = 0;
 	
 	if (!incremental) {
 		sendw(sess, sess->fb.frame_to_send, sess->fb.frame_size, 0);
 	} else {
-		start = sess->fb.last_dirty.y1 * sess->video_info.video_scr_x;
+		/*start = sess->fb.last_dirty.y1 * sess->video_info.video_scr_x;
 		size = (sess->fb.last_dirty.y2 + 1 - sess->fb.last_dirty.y1) * sess->video_info.video_scr_x;
 		
-		sendw(sess, sess->fb.frame_to_send + start, size, 0);
+		sendw(sess, sess->fb.frame_to_send + start, size, 0); */
+		
+		fb_reset_dirty_cursor(&sess->fb);
+		while (fb_more_dirty(&sess->fb)) {
+			sendw(sess, fb_dirty_cursor_ptr(&sess->fb), fb_size_at_dirty_cursor(&sess->fb), 0);		
+			fb_advance_dirty_cursor(&sess->fb);
+		}
+		
+		
 	}
 }
 
@@ -444,6 +472,6 @@ void vnc_evt_update_request(session* sess, VNCFBUpdateReq* evt) {
 	
 	vnc_upd_send_colourmap(sess);
 	
-	vnc_upd_send_hdr_raw(sess, evt->incremental);
+	vnc_upd_send_hdr_raw(sess, &evt->incremental);
 	vnc_send_body_raw(sess, evt->incremental);
 }

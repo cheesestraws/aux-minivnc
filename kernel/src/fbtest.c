@@ -65,8 +65,10 @@ int main() {
 	
 	ret = ioctl(fb_fd, FB_MODE, &b);
 	if (ret < 0) {
-		printf("ioctl 1: error %d\n", errno);
+		printf("ioctl 2: error %d\n", errno);
 	}
+	
+	print_mode(&b);
 
 	for (i = 0; i < 32; i++) {
 		c.chunk = i;
@@ -77,7 +79,6 @@ int main() {
 		memcpy(&lut[i * 8], c.clut, 64);
 	}
 
-	//print_mode(&b);
 	
 	/*for (i = 0; i < 32; i++) {
 		c.chunk = i;
@@ -124,15 +125,6 @@ int main() {
 	if (ret < 0) {
 		printf("ioctl m: error %d\n", errno);
 	} */
-	
-	ret = ioctl(fb_fd, FB_KB_MODE, &i);
-	
-	printf("kb mode %d\n", i);
-	
-	i = 0;
-	ret = ioctl(fb_fd, FB_KB_KCHR, &i);
-	
-	printf("\n");
 	
 	return 0;
 }

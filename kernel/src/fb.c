@@ -1,5 +1,7 @@
 #define KERNEL
 
+#include <string.h>
+
 #include <sys/errno.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -12,6 +14,7 @@
 
 #include <mac/quickdraw.h>
 #include <mac/events.h>
+#include <mac/slots.h>
 
 #include "fb.h"
 #include "crc32.h"
@@ -24,12 +27,102 @@ struct FB_VDEEntRec {
 	unsigned short count;
 };
 
+// fb_c contains a clut that is in the process of being transferred to
+// a user process
 char fb_c[2048];
-struct FB_VDEEntRec fb_vde;
+
+// This is an array of VPBlocks for screen modes available.  The first
+// subscript is the device number; the second is the mode number - 0x80.
+#define QD_MAX_MODES 6
+VPBlock fb_vp[NSCREENS][QD_MAX_MODES];
+
+#define SNextTypeSRsrc(x) slotmanager(0x15, (x))
+#define SFindStruct(x) slotmanager(0x6, (x))
+#define SGetBlock(x) slotmanager(0x5, (x))
+
+/* fb_get_vpblock gets the video mode information for a specific mode
+   for a specific slot (per the slot manager) and copies it into the
+   block pointed to by vpb. */
+int fb_get_vpblock(slot, mode, vpb) int slot; int mode; VPBlock* vpb; {
+	SpBlock sb;
+	int err;
+	VPBlock* vp;
+	
+	err = noErr;
+	
+	/* Get the functional sResource for video */
+	sb.spSlot = slot;
+	sb.spID = 0;
+	sb.spCategory = 3;
+	sb.spCType = 1;
+	sb.spDrvrSW = 1;
+	sb.spTBMask = 1;  /* ignore spDrvrHW */
+	err = SNextTypeSRsrc(&sb);
+	if (err != 0) {
+		return err;
+	}
+	
+	/* are we still looking at the right slot? */
+	if (sb.spSlot != slot) {
+		return -1;
+	}
+	
+	/* Good, now get the struct for the mode.  This is kind of badly 
+	   documented in IM.  Modes are elements 0x80 and above in the
+	   video functional sResource, and each mode is a struct.  This
+	   is actually only explicitly stated in the diagram on p. 154 of
+	   Cards & Drivers 3rd ed.  The second field of this struct is the
+	   VPBlock. */
+	sb.spID = mode;
+	err = SFindStruct(&sb);
+	if (err != noErr) {
+		return err;
+	}
+	
+	sb.spID = 1; /* Field within the mode struct */
+	err = SGetBlock(&sb);
+	if (err != noErr) {
+		return err;
+	}
+	
+	vp = (VPBlock*)sb.spResult;
+	memcpy(vpb, vp, sizeof(VPBlock));
+	
+	cDisposPtr((char*)sb.spResult);
+	
+	return noErr;
+}
+
+void fb_update_modelist(video_id) int video_id; {
+	int slot;
+	struct video* v;
+	int mode;
+	int modeindex;
+	int err;
+	
+	v = video_desc[video_id];
+	slot = v->video_slot;
+	
+	mode = 0x80;
+	err = 0;
+	while (err == 0) {
+		/* Have we run out of space for modes? */
+		if (mode == 0x80 + QD_MAX_MODES) {
+			break;
+		} 
+		
+		modeindex = mode - 0x80;
+		err = fb_get_vpblock(slot, mode, &fb_vp[video_id][modeindex]);
+		
+		mode++;
+	}
+}
+
 
 int fb_getCLUTFor(v) struct video* v; {
 	int ret;
 	int csCode;
+	struct FB_VDEEntRec fb_vde;
 	
 	ret = 0;
 	
@@ -45,6 +138,24 @@ int fb_getCLUTFor(v) struct video* v; {
 	
 	return ret;
 }
+
+int fb_current_mode(v) struct video* v; {
+	int ret;
+	int csCode;
+	struct VDPageInfo pi;
+	
+	ret = 0;
+	
+	csCode = 2;
+	
+	// kallDriver calls the Mac video driver with the given
+	// csCode and csParam.
+	// 2 -> GetMode (gets mode ID)
+	ret = kallDriver(v, csCode, &pi, 2);
+
+	return pi.csMode;
+}
+
 
 /* mouse utilities */
 extern int ui_devices;
@@ -194,6 +305,9 @@ int fb_init() {
 
 int fb_open(dev) dev_t dev; {
   if(minor(dev) != 0) return EINVAL;
+  
+  fb_update_modelist(minor(dev));
+  
   return 0;
 }
 
@@ -263,7 +377,12 @@ int fb_ioctl(dev, cmd, addr, arg)
 		return 0;
 	case FB_MODE:
 		pdst = (struct VPBlock*)addr;
-		psrc = &(video_desc[dev_index]->vpBlock);
+		i = fb_current_mode(video_desc[dev_index]) - 0x80; 
+		if (i >= QD_MAX_MODES) {
+			return EINVAL;
+		}
+		
+		psrc = &fb_vp[dev_index][i];
 		
 		pdst->vpBaseOffset = psrc->vpBaseOffset;
 		pdst->vpRowBytes = psrc->vpRowBytes;
@@ -277,7 +396,7 @@ int fb_ioctl(dev, cmd, addr, arg)
 		pdst->vpCmpCount = psrc->vpCmpCount;
 		pdst->vpCmpSize = psrc->vpCmpSize;
 		pdst->vpPlaneBytes = psrc->vpPlaneBytes;
-				
+						
 		return 0;
 		
 	case FB_CLUT_CHUNK:

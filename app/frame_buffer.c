@@ -30,6 +30,7 @@ void fb_init(session *sess, frame_buffer *fb) {
 	fb_get_video_info(sess, &fb->vp, &fb->vi);
 	
 	if (fb->vp.vpPixelSize != 8) {
+		printf("vpPixelSize => %d\n", fb->vp.vpPixelSize); 
 		fbTODO("pixel depths != 8 are not yet supported");
 	}
 	
@@ -118,8 +119,11 @@ void fb_update(session *sess, frame_buffer *fb) {
 	src = fb->screen_mirror;
 	dst = fb->frame_to_send;
 	for (i = 0; i < fb->vi.video_scr_y; i++) {
+		xstart = xend = 0;
 		//memcpy(dst, src, fb->vi.video_scr_x);
 		lineChanged = fb_copy_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		//lineChanged = fbf_8_copy_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+
 		changed = changed || lineChanged;
 		if (lineChanged && (i < lowYChange)) {
 			lowYChange = i;
@@ -179,6 +183,53 @@ int fb_copy_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
 	
 	return changed;
 }
+
+int fb_copy_row_silly(char* dst_a0, char* src_a1, int width, int* xstart_, int* xend_) {
+	int wi_d1;
+	int i_d2;
+	int srcint_d3;
+	int changed_d0;
+	int xstart_d4;
+	int xend_d5;
+
+	i_d2 = 0;	
+	wi_d1 = width >> 2;
+	changed_d0 = 0;
+	xstart_d4 = 0xFFFFFFFF;
+		
+loop:
+	
+	srcint_d3 = ((int*)src_a1)[i_d2];
+	if (((int*)dst_a0)[i_d2] == srcint_d3) {
+		goto skipchanged;
+	}
+	
+	((int*)dst_a0)[i_d2] = srcint_d3;
+	changed_d0 = 1;
+	
+	xend_d5 = i_d2;
+	xend_d5 *= 4;
+	xend_d5 += 3;
+	
+	if (xstart_d4 != 0xFFFFFFFF) {
+		goto skipchanged;
+	}
+	
+	xstart_d4 = i_d2;
+	xstart_d4 *= 4;
+	
+skipchanged:
+	i_d2++;
+	if (i_d2 != wi_d1) {
+		goto loop;
+	}
+	
+	*xstart_ = xstart_d4;
+	*xend_ = xend_d5;
+	
+	return changed_d0;
+}
+
 
 void fb_reset_dirty_cursor(frame_buffer *fb) {
 	fb->dirty_cursor.next_row_offset = fb->vi.video_scr_x;

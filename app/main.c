@@ -6,8 +6,25 @@
 
 #include <stdio.h>
 #include <errno.h>
+#include <signal.h>
 
-void listener() {
+void ignore_sigpipe(void)
+{
+	struct sigvec sv;
+	int ret;
+	
+	memset(&sv, 0, sizeof(sv));
+	sv.sv_handler = SIG_IGN;
+	sv.sv_flags = 0;
+	
+	ret = sigvec(SIGPIPE, &sv, NULL);
+	if (ret) {
+		printf("sigvec failed! bailing out.\n");
+		exit(1);
+	}
+}
+
+void listener(void) {
 	int sock;
 	int clisock;
 	int ret;
@@ -45,5 +62,6 @@ void listener() {
 }
 
 int main(int argc, char** argv) {
+	ignore_sigpipe();
 	listener();	
 }

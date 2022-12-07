@@ -28,6 +28,7 @@ void listener(void) {
 	int sock;
 	int clisock;
 	int ret;
+	int reuseaddr;
 	struct sockaddr_in addr;
 	struct sockaddr_in cliaddr;
 	
@@ -41,6 +42,10 @@ void listener(void) {
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	addr.sin_port = htons(5900);
+	
+	/* Enable REUSEADDR so we can come back if we break */
+	reuseaddr = 1;
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int));
 
 	ret = bind(sock, &addr, sizeof(addr));
 	if (ret < 0) {

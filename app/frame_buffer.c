@@ -2,6 +2,7 @@
 
 #include "session.h"
 #include "timer.h"
+#include "luts.h"
 #include "../kernel/src/fb.h"
 
 void fbTODO(char* str) {
@@ -37,7 +38,7 @@ void fb_init(session *sess, frame_buffer *fb) {
 	// Ideally, this would be the screen memory mapped into our process space
 	// (we'd need to phys(...) in the kernel module).  But I don't know how to
 	// yet.  So we're going to have to copy the whole screen memory into here.
-	fb->mirror_size = fb->vi.video_mem_x * fb->vi.video_mem_y;
+	fb->mirror_size = fb->vp.vpRowBytes * fb->vi.video_mem_y;
 	fb->screen_mirror = (char*)malloc(fb->mirror_size);
 	if (!fb->screen_mirror) {
 		session_err(sess, "could not allocate screen_mirror");
@@ -65,12 +66,14 @@ void fb_update_clut(session *sess, frame_buffer *fb) {
 	if (ret < 0) {
 		session_err(sess, "FB_CLUT_HASH failed");
 	}
-	if (fb->clut_hash == i) {
-		return;
+	if (fb->clut_hash != i) {
+		fb->clut_hash = i;
+		fb->clut_changed = 1;
 	}
-	
-	fb->clut_hash = i;
-	fb->clut_changed = 1;
+
+	if (!fb->clut_changed) {
+		return;
+	}	
 
 	for (i = 0; i < 32; i++) {
 		c.chunk = i;
@@ -104,6 +107,8 @@ void fb_update(session *sess, frame_buffer *fb) {
 	int xstart;
 	int xend;
 	
+	fb_get_video_info(sess, &fb->vp, &fb->vi);
+	
 	// First, update the CLUT
 	fb_update_clut(sess, fb);
 	
@@ -120,9 +125,15 @@ void fb_update(session *sess, frame_buffer *fb) {
 	dst = fb->frame_to_send;
 	for (i = 0; i < fb->vi.video_scr_y; i++) {
 		xstart = xend = 0;
-		//memcpy(dst, src, fb->vi.video_scr_x);
-		lineChanged = fb_copy_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
-		//lineChanged = fbf_8_copy_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		if (fb->vp.vpPixelSize == 1) {
+			lineChanged = fb_copy_1_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		} else if (fb->vp.vpPixelSize == 2) {
+			lineChanged = fb_copy_2_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		} else if (fb->vp.vpPixelSize == 4) {
+			lineChanged = fb_copy_4_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		} else {
+			lineChanged = fb_copy_8_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		}
 
 		changed = changed || lineChanged;
 		if (lineChanged && (i < lowYChange)) {
@@ -141,11 +152,12 @@ void fb_update(session *sess, frame_buffer *fb) {
 		}
 		
 		dst += fb->vi.video_scr_x;
-		src += fb->vi.video_mem_x;
+		src += fb->vp.vpRowBytes;
 	}
 	print_time_since("fb_update/copy", us);
 	
 	if (changed) {
+		//printf("change: %d %d %d %d\n", lowXChange, lowYChange, highXChange, highYChange);
 		fb->last_changed = changed;
 		fb->last_dirty.y1 = lowYChange;
 		fb->last_dirty.y2 = highYChange;
@@ -160,7 +172,7 @@ void fb_update(session *sess, frame_buffer *fb) {
 	}
 }
 
-int fb_copy_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
+int fb_copy_8_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
 	int wi = width / 4;
 	int i = 0;
 	int changed = 0;
@@ -184,51 +196,105 @@ int fb_copy_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
 	return changed;
 }
 
-int fb_copy_row_silly(char* dst_a0, char* src_a1, int width, int* xstart_, int* xend_) {
-	int wi_d1;
-	int i_d2;
-	int srcint_d3;
-	int changed_d0;
-	int xstart_d4;
-	int xend_d5;
-
-	i_d2 = 0;	
-	wi_d1 = width >> 2;
-	changed_d0 = 0;
-	xstart_d4 = 0xFFFFFFFF;
+int fb_copy_1_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
+	int wi = width / 8;
+	int i = 0;
+	int j = 0;
+	int changed = 0;
+	int xstart = -1;
+	int xend;
+	unsigned int pixes1;
+	unsigned int pixes2;
+	int bit;
 		
-loop:
-	
-	srcint_d3 = ((int*)src_a1)[i_d2];
-	if (((int*)dst_a0)[i_d2] == srcint_d3) {
-		goto skipchanged;
+	for (i = 0; i < wi; i++) {
+		pixes1 = lut1bit[(unsigned char)src[i] >> 4];
+		pixes2 = lut1bit[(unsigned char)src[i] & 0xf];
+
+		if (((unsigned int*)dst)[i * 2] != pixes1) {
+			((unsigned int*)dst)[i * 2] = pixes1;
+			if (xstart == -1) {
+				changed = 1;
+				xstart = (i * 2) * 4;
+			}
+			xend = (i * 2) * 4 + 3;
+		}
+		if (((unsigned int*)dst)[i * 2 + 1] != pixes2) {
+			((unsigned int*)dst)[i * 2 + 1] = pixes2;
+			if (xstart == -1) {
+				changed = 1;
+				xstart = (i * 2 + 1) * 4;
+			}
+			xend = (i * 2 + 1) * 4 + 3;
+
+		}		
 	}
 	
-	((int*)dst_a0)[i_d2] = srcint_d3;
-	changed_d0 = 1;
+	*xstart_ = xstart;
+	*xend_ = xend;
 	
-	xend_d5 = i_d2;
-	xend_d5 *= 4;
-	xend_d5 += 3;
-	
-	if (xstart_d4 != 0xFFFFFFFF) {
-		goto skipchanged;
-	}
-	
-	xstart_d4 = i_d2;
-	xstart_d4 *= 4;
-	
-skipchanged:
-	i_d2++;
-	if (i_d2 != wi_d1) {
-		goto loop;
-	}
-	
-	*xstart_ = xstart_d4;
-	*xend_ = xend_d5;
-	
-	return changed_d0;
+	return changed;
 }
+
+int fb_copy_2_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
+	int wi = width / 4;
+	int i = 0;
+	int j = 0;
+	int changed = 0;
+	int xstart = -1;
+	int xend;
+	unsigned int pixes;
+	unsigned int pixes2;
+	int bit;
+		
+	for (i = 0; i < wi; i++) {
+		pixes = lut2bit[(unsigned char)src[i]];
+
+		if (((unsigned int*)dst)[i] != pixes) {
+			((unsigned int*)dst)[i] = pixes;
+			if (xstart == -1) {
+				changed = 1;
+				xstart = i * 4;
+			}
+			xend = (i * 4) + 3;
+		}
+	}
+	
+	*xstart_ = xstart;
+	*xend_ = xend;
+	
+	return changed;
+}
+
+int fb_copy_4_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
+	int wi = width / 2;
+	int i = 0;
+	int j = 0;
+	int changed = 0;
+	int xstart = -1;
+	int xend;
+	unsigned short pixes;
+	int bit;
+		
+	for (i = 0; i < wi; i++) {
+		pixes = lut4bit[(unsigned char)src[i]];
+
+		if (((unsigned short*)dst)[i] != pixes) {
+			((unsigned short*)dst)[i] = pixes;
+			if (xstart == -1) {
+				changed = 1;
+				xstart = i * 2;
+			}
+			xend = (i * 2) + 1;
+		}
+	}
+	
+	*xstart_ = xstart;
+	*xend_ = xend;
+	
+	return changed;
+}
+
 
 
 void fb_reset_dirty_cursor(frame_buffer *fb) {

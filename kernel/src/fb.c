@@ -36,6 +36,7 @@ char fb_c[2048];
 #define QD_MAX_MODES 6
 VPBlock fb_vp[NSCREENS][QD_MAX_MODES];
 
+// Macros for Slot Manager calls
 #define SNextTypeSRsrc(x) slotmanager(0x15, (x))
 #define SFindStruct(x) slotmanager(0x6, (x))
 #define SGetBlock(x) slotmanager(0x5, (x))
@@ -93,6 +94,8 @@ int fb_get_vpblock(slot, mode, vpb) int slot; int mode; VPBlock* vpb; {
 	return noErr;
 }
 
+/* fb_update_modelist updates the cached list of modes for the
+   given screen device. */
 void fb_update_modelist(video_id) int video_id; {
 	int slot;
 	struct video* v;
@@ -118,27 +121,8 @@ void fb_update_modelist(video_id) int video_id; {
 	}
 }
 
-
-int fb_getCLUTFor(v) struct video* v; {
-	int ret;
-	int csCode;
-	struct FB_VDEEntRec fb_vde;
-	
-	ret = 0;
-	
-	csCode = 3;
-	fb_vde.csTable = fb_c;
-	fb_vde.start = 0;
-	fb_vde.count = 255;
-
-	// kallDriver calls the Mac video driver with the given
-	// csCode and csParam.
-	// 3 -> GetEntries (gets CLUT entries)
-	ret = kallDriver(v, csCode, &fb_vde, 2);
-	
-	return ret;
-}
-
+/* fb_current_mode gets the current mode number.  To turn it into
+   an index into fb_vp[dev], subtract 0x80. */
 int fb_current_mode(v) struct video* v; {
 	int ret;
 	int csCode;
@@ -155,6 +139,43 @@ int fb_current_mode(v) struct video* v; {
 
 	return pi.csMode;
 }
+
+int fb_getCLUTFor(idx) int idx; {
+	int ret;
+	int mode;
+	int colours;
+	int csCode;
+	struct video* v;
+	struct FB_VDEEntRec fb_vde;
+	
+	v = video_desc[idx];
+	
+	// First, check how many colours are *in* the clut.  If we request
+	// too many from the driver it will refuse to talk to us.
+	mode = fb_current_mode(v) - 0x80;
+	colours = 1 << fb_vp[idx][mode].vpPixelSize;
+	
+	ret = 0;
+	
+	csCode = 3;
+	fb_vde.csTable = fb_c;
+	fb_vde.start = 0;
+	fb_vde.count = colours - 1;
+
+	// kallDriver calls the Mac video driver with the given
+	// csCode and csParam.
+	// 3 -> GetEntries (gets CLUT entries)
+	ret = kallDriver(v, csCode, &fb_vde, 2);
+	
+	if (ret != 0) {
+		printf("fb_getCLUTFor: return %d\n", ret);
+	}
+	
+	
+	
+	return ret;
+}
+
 
 
 /* mouse utilities */
@@ -319,16 +340,22 @@ int fb_read(dev, uio) dev_t dev; struct uio* uio; {
 	int dev_index;
 	struct video* v;
 	int size;
+	int mem_x;
 	int ret;
+	int mode;
 
 	
 	dev_index = minor(dev);
 	if (dev_index >= video_count) {
 		return EINVAL;
 	}
-	
+			
 	v = video_desc[dev_index];
-	size = v->video_mem_x * v->video_mem_y;
+	
+	mode = fb_current_mode(v) - 0x80;
+	mem_x = fb_vp[dev_index][mode].vpRowBytes;
+	
+	size = mem_x * v->video_mem_y;
 
 	ret = uiomove(v->video_addr, size, UIO_READ, uio);
 	return ret;
@@ -407,7 +434,7 @@ int fb_ioctl(dev, cmd, addr, arg)
 		cdst->clut[1] = 52;
 		chunk = cdst->chunk;
 		base = chunk * 64;
-		ret = fb_getCLUTFor(vsrc);
+		ret = fb_getCLUTFor(dev_index);
 
 		// copy the clut */
 		for (i = 0; i < 64; i++) {
@@ -440,7 +467,7 @@ int fb_ioctl(dev, cmd, addr, arg)
 	
 	case FB_CLUT_HASH:
 		vsrc = video_desc[dev_index];
-		fb_getCLUTFor(vsrc);
+		fb_getCLUTFor(dev_index);
 		i = fb_crc32buf(fb_c, 2048);
 		*((int*)addr) = i;
 		

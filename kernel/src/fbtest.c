@@ -61,7 +61,9 @@ int main() {
 		printf("ioctl 1: error %d\n", errno);
 	}
 	
-	//print_video(&v);
+	print_video(&v);
+	
+	printf("\n");
 	
 	ret = ioctl(fb_fd, FB_MODE, &b);
 	if (ret < 0) {

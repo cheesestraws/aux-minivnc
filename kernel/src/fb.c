@@ -259,6 +259,9 @@ void fb_ui_mouse(x, y, button) short x; short y; short button; {
 
 void move_mouse_to(id, x, y, button) int id; short x; short y; short button; {
 	int mode;
+	int dx;
+	int dy;
+	int rebuff; // reconstructed ADB from mouse
 	mousecall_t call;
 	
 	// if the decices are attached to a uinter layer, poke the mac
@@ -270,14 +273,21 @@ void move_mouse_to(id, x, y, button) int id; short x; short y; short button; {
 	
 	fb_get_mouse_mode_and_callback(id, &mode, &call);
 	
+	dx = x - mouse_x[id];
+	dy = y - mouse_y[id];
+	
 	mouse_x[id] = x;
 	mouse_y[id] = y;
 	mouse_button[id] = button;
-	
+		
+	rebuff = (dx & 0x3f) | ((dy & 0x3f)<<8);
+	if (button) {
+		rebuff = rebuff | (1 << 15);
+	}
 	
 	// Now we do the magic call that the higher layers expect
 	if (mode) {
-		(*call)(id,MOUSE_CHANGE,0,3);
+		(*call)(id,MOUSE_CHANGE,rebuff,3);
 	}
 }
 
@@ -379,6 +389,7 @@ int fb_ioctl(dev, cmd, addr, arg)
 	struct fb_clut_chunk* cdst;
 	int mouse_id;
 	struct fb_mouse* meese;
+	struct fb_mouse_state* ms;
 	
 	int dev_index;
 	
@@ -471,6 +482,18 @@ int fb_ioctl(dev, cmd, addr, arg)
 		i = fb_crc32buf(fb_c, 2048);
 		*((int*)addr) = i;
 		
+		return 0;
+		
+	case FB_MOUSE_STATE:
+		ms = (struct fb_mouse_state*)addr;
+		vsrc = video_desc[dev_index];
+		mouse_id = vsrc->video_mouse_ind;
+
+		fb_get_mouse_mode_and_callback(mouse_id, &(ms->mode), (mousecall_t*)&(ms->call));
+		return 0;
+		
+	case FB_UI_DEVICES:
+		*((int*)addr) = ui_devices;
 		return 0;
 	}
 

@@ -44,6 +44,9 @@ void handle_session(int sock) {
 	session sess;
 	int ret;
 	
+	/* Zero our memory */
+	memset((char*)(&sess), '\0', sizeof(session));
+	
 	/* Open framebuffer driver */
 	ret = open("/dev/fb0");
 	if (ret < 0) {
@@ -345,11 +348,9 @@ void vnc_evt_client_cut_text(session* sess, VNCClientCutText* evt) {
 
 void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
 	keypresses k;
-
 	sess->last_checkpoint = "vnc_evt_key";
 	
 	k = sym_to_keypresses(evt->key);
-	
 	if (evt->down) {
 		printf("key_down:");
 		do_key_down(sess, k);
@@ -372,13 +373,13 @@ void vnc_evt_set_pixel_format(session* sess, VNCSetPixFormat* evt) {
 void vnc_evt_pointer(session* sess, VNCPointerEvent* evt) {
 	struct fb_mouse newPosition;
 	int ret;
-
+	
 	sess->last_checkpoint = "vnc_evt_pointer";
 	
 	newPosition.x = evt->x;
 	newPosition.y = evt->y;
 	newPosition.button = (evt->btnMask != 0);
-	
+
 	ret = ioctl(sess->fb_fd, FB_MOVE_MOUSE, &newPosition);
 	if (ret < 0) {
 		session_err(sess, "Could not move pointer");
@@ -467,7 +468,7 @@ void vnc_send_body_raw(session* sess, char incremental) {
 
 void vnc_evt_update_request(session* sess, VNCFBUpdateReq* evt) {
 	sess->last_checkpoint = "vnc_evt_update_request";
-	
+		
 	fb_update(sess, &sess->fb);
 	
 	vnc_upd_send_colourmap(sess);

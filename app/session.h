@@ -25,8 +25,7 @@ typedef struct session {
 	VNCClientMessages messageInProgress;
 	char* msg_dst; // the current write point wtihin messageInProgress
 	
-	frame_buffer fb;
-	
+	frame_buffer fb;	
 } session;
 
 void handle_session(int sock);

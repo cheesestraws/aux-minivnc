@@ -23,6 +23,11 @@ struct fb_mouse {
 	short button;
 };
 
+struct fb_mouse_state {
+	int mode;
+	unsigned int call;
+};
+
 
 #define FB_METADATA _IOWR('F', 0, struct video)
 #define FB_MODE _IOWR('F', 1, struct VPBlock)
@@ -31,6 +36,9 @@ struct fb_mouse {
 #define FB_KB_MODE _IOR('F', 4, int)
 #define FB_KB_KCHR _IOW('F', 5, int)
 #define FB_CLUT_HASH _IOR('F', 6, int)
+#define FB_MOUSE_STATE _IOR('F', 7, struct fb_mouse_state)
+#define FB_UI_DEVICES _IOR('F', 8, int)
+
 
 
 

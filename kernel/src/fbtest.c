@@ -43,6 +43,7 @@ int main() {
 	struct VPBlock b;
 	struct fb_clut_chunk c;
 	struct fb_mouse m;
+	struct fb_mouse_state ms;
 	int ret;
 	ColorSpec* cs;
 	int i, j;
@@ -56,7 +57,15 @@ int main() {
 		printf("open: error %d\n", errno);
 	}
 	
-	ret = ioctl(fb_fd, FB_METADATA, &v);
+	ret = ioctl(fb_fd, FB_MOUSE_STATE, &ms);
+	if (ret < 0) {
+		printf("ioctl 1: error %d\n", errno);
+	}
+	
+	printf("mode: %d\n", ms.mode);
+	printf("call: %x\n", ms.call);
+	
+	/*ret = ioctl(fb_fd, FB_METADATA, &v);
 	if (ret < 0) {
 		printf("ioctl 1: error %d\n", errno);
 	}
@@ -79,7 +88,7 @@ int main() {
 			printf("ioctl 1: error %d\n", errno);
 		}
 		memcpy(&lut[i * 8], c.clut, 64);
-	}
+	} */
 
 	
 	/*for (i = 0; i < 32; i++) {

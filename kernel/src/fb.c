@@ -293,6 +293,7 @@ void move_mouse_to(id, x, y, button) int id; short x; short y; short button; {
 
 /* keyboard gubbins */
 typedef int (*keycall_t)();
+extern char transData; // kchr in play
 
 int fb_kb_mode(id) int id; {
 	int x;
@@ -387,6 +388,8 @@ int fb_ioctl(dev, cmd, addr, arg)
 	struct VPBlock* psrc;
 	struct VPBlock* pdst;
 	struct fb_clut_chunk* cdst;
+	struct fb_kchr_chunk* kdst;
+	char* csrc;
 	int mouse_id;
 	struct fb_mouse* meese;
 	struct fb_mouse_state* ms;
@@ -494,6 +497,24 @@ int fb_ioctl(dev, cmd, addr, arg)
 		
 	case FB_UI_DEVICES:
 		*((int*)addr) = ui_devices;
+		return 0;
+		
+	case FB_KB_KCHR_CHUNK:
+		/* there's only one kchr for the whole kernel, so we
+		   don't care about what device we are */
+		kdst = (struct fb_kchr_chunk*)addr;
+
+		   
+		if (kdst->chunk >= 32) {
+			// There's only a 3k buffer; 32 * 96.
+			return EINVAL;
+		}
+		
+		base = kdst->chunk * 96;
+		csrc = &transData + base;
+		for (i = 0; i < 96; i++) {
+			kdst->data[i] = csrc[i];
+		}
 		return 0;
 	}
 

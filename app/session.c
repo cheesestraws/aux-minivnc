@@ -350,6 +350,8 @@ void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
 	keypresses k;
 	sess->last_checkpoint = "vnc_evt_key";
 	
+	printf("keysym: %hx\n", evt->key);
+	
 	k = sym_to_keypresses(evt->key);
 	if (evt->down) {
 		printf("key_down:");

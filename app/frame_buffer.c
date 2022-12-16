@@ -115,7 +115,7 @@ void fb_update(session *sess, frame_buffer *fb) {
 	// Then, copy screen memory out.
 	us = start_us();
 	ret = read(sess->fb_fd, fb->screen_mirror, fb->mirror_size);
-	print_time_since("fb_update/read", us);
+//	print_time_since("fb_update/read", us);
 	
 	// Let's pretend that nothing other than 8 bit depth exists for the
 	// moment.  Copy the screen mirror into the bitmap to send.
@@ -154,7 +154,7 @@ void fb_update(session *sess, frame_buffer *fb) {
 		dst += fb->vi.video_scr_x;
 		src += fb->vp.vpRowBytes;
 	}
-	print_time_since("fb_update/copy", us);
+//	print_time_since("fb_update/copy", us);
 	
 	if (changed) {
 		//printf("change: %d %d %d %d\n", lowXChange, lowYChange, highXChange, highYChange);

@@ -42,6 +42,7 @@ int main() {
 	struct video v;
 	struct VPBlock b;
 	struct fb_clut_chunk c;
+	struct fb_kchr_chunk k;
 	struct fb_mouse m;
 	struct fb_mouse_state ms;
 	int ret;
@@ -136,6 +137,19 @@ int main() {
 	if (ret < 0) {
 		printf("ioctl m: error %d\n", errno);
 	} */
+	
+	
+	for (i = 0; i < 32; i++) {
+	 	memset(&k, 0, sizeof(k));
+		k.chunk = i;
+		ret = ioctl(fb_fd, FB_KB_KCHR_CHUNK, &k);
+				
+		for (j = 0; j < 96; j++) {
+			printf("%02x ", (unsigned int)(k.data[j]));
+		}
+		
+		printf("\n\n");
+	}
 	
 	return 0;
 }

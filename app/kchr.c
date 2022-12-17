@@ -2,7 +2,7 @@
 #include <fcntl.h>
 
 #include "kchr.h"
-#include "../../kernel/src/fb.h"
+#include "../kernel/src/fb.h"
 
 /* A KCHR is a resource that maps keyboard keys to the characters
    they should produce.  They represent a "keyboard layout".

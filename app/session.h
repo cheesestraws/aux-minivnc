@@ -6,6 +6,7 @@
 
 #include "vnc_types.h"
 #include "frame_buffer.h"
+#include "kchr.h"
 
 #define SESS_RECV_BUFF_LEN 256
 
@@ -26,6 +27,8 @@ typedef struct session {
 	char* msg_dst; // the current write point wtihin messageInProgress
 	
 	frame_buffer fb;	
+	
+	kchr_state kchr;
 } session;
 
 void handle_session(int sock);

@@ -3,6 +3,7 @@
 #include "frame_buffer.h"
 #include "frame_buffer_ops.h"
 #include "keyboard_mess.h"
+#include "macroman.h"
 
 #include "../kernel/src/fb.h"
 
@@ -71,6 +72,7 @@ void handle_session(int sock) {
 	
 	fb_init(&sess, &sess.fb);
 	session_setupVideoInfo(&sess);
+	kchr_load(sess.fb_fd, &sess.kchr);
 	
 	/* Now do our protocol handshake, or what we pass off as one. */
 	vnc_sendProtocolVersion(&sess);
@@ -348,17 +350,50 @@ void vnc_evt_client_cut_text(session* sess, VNCClientCutText* evt) {
 
 void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
 	keypresses k;
+	unsigned char mr;
+	struct kchr_keypresses kc;
+
 	sess->last_checkpoint = "vnc_evt_key";
 	
-	printf("keysym: %hx\n", evt->key);
+	// for now disregard modifiers
+	if (keysym_is_modifier(evt->key)) {
+		return;
+	}
 	
-	k = sym_to_keypresses(evt->key);
-	if (evt->down) {
-		printf("key_down:");
-		do_key_down(sess, k);
-	} else {
-		printf("key_up:");
-		do_key_up(sess, k);
+	mr = keysym_to_macroman(evt->key);
+	printf("key 0x%x => char 0x%x\n", evt->key, mr);
+	
+	kc = kchr_keys_for_char(&sess->kchr, mr);
+	printf("adb: ");
+	kchr_print_keypress(kc.fst); printf(" ");
+	kchr_print_keypress(kc.snd);
+	printf("\n");
+	
+	// is this a two key sequence?
+	if (kc.snd.valid) {
+		if (evt->down) {
+			// A key down consists of a full keypress of the first key
+			// and a key down of the second
+			k = vkey_to_keypresses(kc.fst);
+			do_key_down(sess, k);
+			do_key_up(sess, k);
+			
+			k = vkey_to_keypresses(kc.snd);
+			do_key_down(sess, k);
+		} else {
+			// A key up is just a key up of the second.
+			k = vkey_to_keypresses(kc.snd);
+			do_key_up(sess, k);
+		}
+	} else {	
+		k = vkey_to_keypresses(kc.fst);
+		if (evt->down) {
+			//printf("key_down:");
+			do_key_down(sess, k);
+		} else {
+			//printf("key_up:");
+			do_key_up(sess, k);
+		}
 	}
 }
 
@@ -463,8 +498,6 @@ void vnc_send_body_raw(session* sess, char incremental) {
 			sendw(sess, fb_dirty_cursor_ptr(&sess->fb), fb_size_at_dirty_cursor(&sess->fb), 0);		
 			fb_advance_dirty_cursor(&sess->fb);
 		}
-		
-		
 	}
 }
 

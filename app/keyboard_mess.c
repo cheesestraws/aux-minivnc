@@ -1,35 +1,70 @@
 #include "../kernel/src/fb.h"
 
 #include "keyboard_mess.h"
+#include "kchr.h"
 
-// numbers
-static char digits[10] 
-	= { 0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19 };
+/* This file handles keypresses.  Keyboards are a mess, and handling
+   them is full of edge cases.
+   
+   From the client we get X keysyms, which are unsure whether they're
+   keycodes or character codes.  Depending on the mode that the A/UX
+   keyboard subsystem is in, we either need to send it ASCII characters
+   or ADB scancodes.
+*/
+	    
+#define COMMAND 55
+#define SHIFT 56
+#define LOCK 57
+#define OPTION 58
+#define CTRL 59
 
-static char letters[26] 
-	= { 0x00, 0x0B, 0x08, 0x02, 0x0E, 0x03, 0x05, 0x04, 0x22, 0x26, 
-	    0x28, 0x25, 0x2E, 0x2D, 0x1F, 0x23, 0x0C, 0x0F, 0x01, 0x11, 
-	    0x20, 0x09, 0x0D, 0x07, 0x10, 0x06};
-
-keypresses sym_to_keypresses(unsigned int keysym) {
-	keypresses ks;
+int keysym_is_modifier(unsigned int keysym) {
+	if (0xFFE1 <= keysym && keysym <= 0xFFEA) {
+		return 1;
+	}
 	
-	ks.count = 0;
-
-	// This is a horrible mess and is rather stupid.
+	if (keysym == 0xFE03) {
+		return 1;
+	}
 	
-	// A digit?
-	if ('0' <= keysym && keysym <= '9') {
-		ks.count = 1;
-		ks.keys[0] = digits[keysym - 0x30];
+	if (keysym == 0xff7e) {
+		return 1;
+	}
+
+	return 0;
+}
+
+keypresses vkey_to_keypresses(kchr_vkeypress vk) {
+	keypresses ks = { 0 };
+	
+	if (!vk.valid) {
 		return ks;
 	}
 	
-	if ('a' <= keysym && keysym <= 'z') {
-		ks.count = 1;
-		ks.keys[0] = letters[keysym - 'a'];
-		return ks;
+	// check modifiers
+	if (vk.modifiers & KCHR_CMD_KEY) {
+		KS_APPEND(ks, COMMAND);
 	}
+	
+	if (vk.modifiers & KCHR_SHIFT_KEY) {
+		KS_APPEND(ks, SHIFT);
+	}
+	
+	if (vk.modifiers & KCHR_LOCK_KEY) {
+		KS_APPEND(ks, LOCK);
+	}
+	
+	if (vk.modifiers & KCHR_OPTION_KEY) {
+		KS_APPEND(ks, OPTION);
+	}
+	
+	if (vk.modifiers & KCHR_CTRL_KEY) {
+		KS_APPEND(ks, CTRL);
+	}
+	
+	KS_APPEND(ks, vk.keycode);
+	
+	return ks;
 }
 
 static void do_key(session* sess, unsigned char code) {
@@ -47,11 +82,11 @@ void do_key_down(session* sess, keypresses kp) {
 	int i;
 	
 	for (i = 0; i < kp.count; i++) {
-		printf("do_key: %d", (int)kp.keys[i]);
+		//printf("do_key: %d", (int)kp.keys[i]);
 	
 		do_key(sess, kp.keys[i]);
 	}
-	printf("\n");
+	//printf("\n");
 }
 
 void do_key_up(session* sess, keypresses kp) {
@@ -62,9 +97,9 @@ void do_key_up(session* sess, keypresses kp) {
 		k = kp.keys[i];
 		k = k | 0x80; // key up have top bit set
 	
-		printf("do_key: %d", (int)k);
+		//printf("do_key: %d", (int)k);
 		do_key(sess, k);
 	}
-	printf("\n");
+	//printf("\n");
 }
 

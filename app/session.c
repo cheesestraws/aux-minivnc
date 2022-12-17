@@ -3,6 +3,7 @@
 #include "frame_buffer.h"
 #include "frame_buffer_ops.h"
 #include "keyboard_mess.h"
+#include "macroman.h"
 
 #include "../kernel/src/fb.h"
 
@@ -350,14 +351,14 @@ void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
 	keypresses k;
 	sess->last_checkpoint = "vnc_evt_key";
 	
-	printf("keysym: %hx\n", evt->key);
+	printf("key 0x%x => char 0x%x\n", evt->key, keysym_to_macroman(evt->key));
 	
 	k = sym_to_keypresses(evt->key);
 	if (evt->down) {
-		printf("key_down:");
+		//printf("key_down:");
 		do_key_down(sess, k);
 	} else {
-		printf("key_up:");
+		//printf("key_up:");
 		do_key_up(sess, k);
 	}
 }
@@ -463,8 +464,6 @@ void vnc_send_body_raw(session* sess, char incremental) {
 			sendw(sess, fb_dirty_cursor_ptr(&sess->fb), fb_size_at_dirty_cursor(&sess->fb), 0);		
 			fb_advance_dirty_cursor(&sess->fb);
 		}
-		
-		
 	}
 }
 

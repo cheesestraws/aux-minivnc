@@ -5,7 +5,7 @@
 #include "kchr.h"
 #include "../../kernel/src/fb.h"
 
-void prentry(char c, struct kchr_entry* es) {
+void prentry(unsigned char c, struct kchr_entry* es) {
 	struct kchr_entry e = es[c];
 	char cs[2];
 	
@@ -15,14 +15,21 @@ void prentry(char c, struct kchr_entry* es) {
 	printf("%s: valid %d tab %d key %d\n", cs, e.valid, e.table, e.keycode);
 }
 
+void prdead(unsigned char c, struct kchr_dead_sub* es) {
+	struct kchr_dead_sub e = es[c];
+	char cs[2];
+	
+	cs[0] = c;
+	cs[1] = 0;	
+
+	printf("%s: valid %d tab %d key %d complete %d\n", cs, e.valid, e.table, e.deadkey, e.comp_char);
+}
+
 int main() {
 	int fb_fd;
-	unsigned char kchr[3072];
-	unsigned char tablemods[32];
-	struct kchr_entry entries[256];
-	char* dst;
-	int i;
-	struct fb_kchr_chunk chunk;
+	struct kchr_keypresses keys;
+	
+	struct kchr_state ks;
 
 	// open the fb
 	fb_fd = open("/dev/fb0");
@@ -30,31 +37,21 @@ int main() {
 		printf("open: error %d\n", errno);
 	}
 
-	// grab the kchr
-	dst = kchr;
-	for (i = 0; i < 32; i++) {
-		chunk.chunk = i;
-		ioctl(fb_fd, FB_KB_KCHR_CHUNK, &chunk);
-		memcpy(dst, chunk.data, 96);
-		dst += 96;
-	}
+	kchr_load(fb_fd, &ks);
 
-	kchr_build_table_table(kchr, tablemods);
+	prentry('a', ks.entries);
+	prentry('A', ks.entries);
+	prentry('Z', ks.entries);
+	prentry(0x8e, ks.entries);
+	prentry('E', ks.entries);
 
-	for (i = 0; i < 32; i++) {
-		printf("%d => ", i, (int)(tablemods[i]));
-		kchr_print_modifiers(tablemods[i]);
-		printf("\n");
-	}
+	
+		
+	prdead(0xea, ks.deads);
+	
+	
+	keys = kchr_keys_for_char(&ks, 0x83);
+	kchr_print_keypress(keys.fst); printf(" ");
+	kchr_print_keypress(keys.snd);
 	printf("\n");
-
-	
-	kchr_build_char_table(kchr, entries);
-	
-	prentry('a', entries);
-	prentry('A', entries);
-	prentry('Z', entries);
-	prentry(0x8e, entries);
-
-	
 }

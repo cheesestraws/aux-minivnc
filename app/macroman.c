@@ -107,18 +107,18 @@ unsigned char keysyms_00[256] = {
 	[0xff] = 0xd8,	// small y w/ diaeresis
 };
 
-unsigned char keysym_to_macroman(short keysym) {
+unsigned char keysym_to_macroman(int keysym) {
 	/* 7 bit ascii is straight passthrough */
 	if (0x20 <= keysym && keysym <= 0x7f) {
 		return (unsigned char)keysym;
 	}
 	
-	if (keysym & 0xff00 == 0xff00) {
+	if ((keysym & 0xff00) == 0xff00) {
 		return keysyms_ff[keysym & 0xff];
 	}
 	
 	// latin-1
-	if (keysym & 0xff00 == 0x0000) {
+	if ((keysym & 0xff00) == 0x0000) {
 		return keysyms_00[keysym & 0xff];
 	}
 	
@@ -184,9 +184,44 @@ unsigned char keysym_to_macroman(short keysym) {
 			return 0xe3;
 		case 0x02b9:	// dotless i
 			return 0xf5;
-		
 			
-		
+		// extended unicode keysyms:
+		case 0x1002248:	// approximately equal
+			return 0xc5;
+		case 0x10025CA:	// lozenge
+			return 0xd7;
+		case 0x1002044:	// fraction slash
+			return 0xda;
+		case 0x1002039:	// single angular quote mark, left-pointing
+			return 0xdc;
+		case 0x100203a:	// single angular quote mark, right-pointing
+			return 0xdd;
+		case 0x100FB01:	// fi ligature
+			return 0xde;
+		case 0x100FB02:	// fl ligature
+			return 0xdf;
+		case 0x100F8FF:	// apple logo
+			return 0xf0;
+		case 0x10002C6:	// loose circumflex
+			return 0xf6;
+		case 0x10002DC:	// small tilde
+			return 0xf7;
+		case 0x10002D8:	// breve
+			return 0xf9;
+		case 0x10002D9: // dot above
+			return 0xfa;
+		case 0x10002da: // ring above
+			return 0xfb;
+		case 0x10002DD:	// double acute
+			return 0xfd;
+		case 0x10002DB:	// ogonek
+			return 0xfe;
+		case 0x10002C7: // caron
+			return 0xff;
+			
+		// euro special case
+		case 0x20ac:
+			return 0xdb;
 	}
 	
 	return 0;	

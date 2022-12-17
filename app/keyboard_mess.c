@@ -47,11 +47,11 @@ void do_key_down(session* sess, keypresses kp) {
 	int i;
 	
 	for (i = 0; i < kp.count; i++) {
-		printf("do_key: %d", (int)kp.keys[i]);
+		//printf("do_key: %d", (int)kp.keys[i]);
 	
 		do_key(sess, kp.keys[i]);
 	}
-	printf("\n");
+	//printf("\n");
 }
 
 void do_key_up(session* sess, keypresses kp) {
@@ -62,9 +62,9 @@ void do_key_up(session* sess, keypresses kp) {
 		k = kp.keys[i];
 		k = k | 0x80; // key up have top bit set
 	
-		printf("do_key: %d", (int)k);
+		//printf("do_key: %d", (int)k);
 		do_key(sess, k);
 	}
-	printf("\n");
+	//printf("\n");
 }
 

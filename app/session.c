@@ -9,6 +9,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/key.h>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
@@ -348,26 +349,27 @@ void vnc_evt_client_cut_text(session* sess, VNCClientCutText* evt) {
 	// Do nothing
 }
 
-void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
+void vnc_evt_key_araw(session* sess, VNCKeyEvent* evt) {
 	keypresses k;
 	unsigned char mr;
 	struct kchr_keypresses kc;
 
-	sess->last_checkpoint = "vnc_evt_key";
+	sess->last_checkpoint = "vnc_evt_key_araw";
 	
-	// for now disregard modifiers
-	if (keysym_is_modifier(evt->key)) {
+	// is this a special character?
+	k = keysym_special_to_keypresses(evt->key);
+	if (k.count) {	
+		if (evt->down) {
+			do_key_down(sess, k);
+		} else {
+			do_key_up(sess, k);
+		}
 		return;
 	}
 	
 	mr = keysym_to_macroman(evt->key);
-	printf("key 0x%x => char 0x%x\n", evt->key, mr);
 	
 	kc = kchr_keys_for_char(&sess->kchr, mr);
-	printf("adb: ");
-	kchr_print_keypress(kc.fst); printf(" ");
-	kchr_print_keypress(kc.snd);
-	printf("\n");
 	
 	// is this a two key sequence?
 	if (kc.snd.valid) {
@@ -394,6 +396,41 @@ void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
 			//printf("key_up:");
 			do_key_up(sess, k);
 		}
+	}
+}
+
+void vnc_evt_key_ascii(session* sess, VNCKeyEvent* evt) {
+	unsigned char mr;
+	keypresses k;
+	
+	sess->last_checkpoint = "vnc_evt_key_ascii";
+	mr = keysym_to_macroman(evt->key);
+	if (mr > 127) {
+		return;
+	}
+	
+	k = raw_keypress(mr);
+	
+	if (evt->down) {
+		do_key_down(sess, k);
+	} 
+	
+	// ignore key up?
+}
+
+void vnc_evt_key(session* sess, VNCKeyEvent* evt) {
+	switch (kb_mode(sess)) {
+	case KEY_ARAW:
+		vnc_evt_key_araw(sess, evt);
+		return;
+	case KEY_ASCII:
+	case KEY_MAC:
+		vnc_evt_key_ascii(sess, evt);
+		return;
+		
+	default:
+		printf("unsupported keyboard mode %d, sorry\n", kb_mode(sess));
+		return;
 	}
 }
 

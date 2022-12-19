@@ -1,2 +1,2 @@
 #!/bin/sh
-gcc -O2 *.c
+gcc -o vncd -O2 *.c

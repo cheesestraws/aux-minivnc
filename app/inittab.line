@@ -1,0 +1,1 @@
+vnc0:2:respawn:/etc/vncd >/dev/syscon 2>&1

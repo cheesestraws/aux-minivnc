@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 
 void ignore_sigpipe(void)
 {
@@ -19,8 +20,8 @@ void ignore_sigpipe(void)
 	
 	ret = sigvec(SIGPIPE, &sv, NULL);
 	if (ret) {
-		printf("sigvec failed! bailing out.\n");
-		exit(1);
+		perror("aux-minivnc/SIGPIPE");
+		printf("sigvec failed! MiniVNC may fall over on client disconnection..\n");
 	}
 }
 
@@ -61,12 +62,25 @@ void listener(void) {
 
 	while (1) {
 		clisock = accept(sock, &cliaddr, sizeof(cliaddr));
-		printf("accepted socket, starting session...\n");
-		handle_session(clisock);
+		printf("accepted VNC connection from %s, starting session...\n", inet_ntoa(cliaddr.sin_addr));
+		handle_session(clisock, cliaddr.sin_addr);
 	}
 }
 
+void credits() {
+	printf("minivnc: a VNC server for A/UX.  Under the GPL version 3.\n");
+	printf("  (c) Rob Mitchelmore, 2022\n");
+	printf("  inspired by and portions (c) Marcio Teixeira, 2022\n");
+	printf("  special thanks to SolraBizna for A/UX kernel driver example.\n");
+}
+
 int main(int argc, char** argv) {
+	if (argc == 2 && (strcmp(argv[1], "--credits") == 0)) {
+		credits();
+		return;
+	}
+
 	ignore_sigpipe();
+	nice(20);
 	listener();	
 }

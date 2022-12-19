@@ -2,6 +2,8 @@
 #define SESSION_H
 
 #include <setjmp.h>
+#include <netinet/in.h>
+
 #include "../kernel/src/fb.h"
 
 #include "vnc_types.h"
@@ -31,7 +33,7 @@ typedef struct session {
 	kchr_state kchr;
 } session;
 
-void handle_session(int sock);
+void handle_session(int sock, struct in_addr cliaddr);
 void session_err(session* sess, char* msg);
 
 #endif

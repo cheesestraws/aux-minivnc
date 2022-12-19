@@ -10,8 +10,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/key.h>
-#include <netinet/in.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
 #include <strings.h>
@@ -42,7 +43,7 @@ void vnc_evt_set_pixel_format(session* sess, VNCSetPixFormat* evt);
 void vnc_evt_pointer(session* sess, VNCPointerEvent* evt);
 void vnc_evt_update_request(session* sess, VNCFBUpdateReq* evt);
 
-void handle_session(int sock) {
+void handle_session(int sock, struct in_addr cliaddr) {
 	session sess;
 	int ret;
 	
@@ -50,8 +51,9 @@ void handle_session(int sock) {
 	memset((char*)(&sess), '\0', sizeof(session));
 	
 	/* Open framebuffer driver */
-	ret = open("/dev/fb0");
+	ret = open("/dev/fb0", O_RDONLY);
 	if (ret < 0) {
+		perror("vncd/handle_session");
 		printf("couldn't open framebuffer, bailing out...\n");
 		sess.fb_fd = -1;
 		goto cleanup;
@@ -67,7 +69,6 @@ void handle_session(int sock) {
 	ret = setjmp(sess.errjmp);
 	if (ret != 0) {
 		// An error return returns here.
-		printf("got error, cleaning up...\n");
 		goto cleanup;	
 	}
 	
@@ -87,6 +88,7 @@ void handle_session(int sock) {
 	}
 	
 cleanup:
+	printf("VNC session from %s disconnected.\n", inet_ntoa(cliaddr));
 	fb_free(&sess.fb);
 	close(sess.sock);
 	close(sess.fb_fd);
@@ -328,9 +330,7 @@ void vnc_evt_encoding_fragment(session* sess, long bytesRead) {
 		
 	if(bytesRead == sizeof(VNCSetEncodingOne)) {
 		//vncEncoding(sess->mesageInProgress.setEncodingOne.encoding);
-		
-		printf("(encoding) Got encoding %ld\n", sess->messageInProgress.setEncodingOne.encoding);
-		
+				
 		sess->messageInProgress.setEncodingOne.numberOfEncodings--;
 	} 
 
@@ -390,11 +390,20 @@ void vnc_evt_key_araw(session* sess, VNCKeyEvent* evt) {
 	} else {	
 		k = vkey_to_keypresses(kc.fst);
 		if (evt->down) {
-			//printf("key_down:");
 			do_key_down(sess, k);
+			
+			// if this is a carriage return, we immediately send
+			// key-up after key-down.  This is to make CommandShell work
+			// properly: it's otherwise a bit skittish.
+			if (kc.fst.keycode == 0x24) {
+				do_key_up(sess, k);
+			}
 		} else {
-			//printf("key_up:");
-			do_key_up(sess, k);
+			// if this is a carriage return, we've already synthesised
+			// a key-up, so pass on it.
+			if (kc.fst.keycode != 0x24) {
+				do_key_up(sess, k);
+			}
 		}
 	}
 }
@@ -415,7 +424,7 @@ void vnc_evt_key_ascii(session* sess, VNCKeyEvent* evt) {
 		do_key_down(sess, k);
 	} 
 	
-	// ignore key up?
+	// Key ups are irrelevant in ASCII and MAC modes.
 }
 
 void vnc_evt_key(session* sess, VNCKeyEvent* evt) {

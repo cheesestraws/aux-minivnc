@@ -292,7 +292,7 @@ void fb_move_mouse_to(id, x, y, button) int id; short x; short y; short button; 
 	int rebuff; // reconstructed ADB from mouse
 	mousecall_t call;
 	
-	// if the decices are attached to a uinter layer, poke the mac
+	// if the devices are attached to a uinter layer, poke the mac
 	// environment directly.
 	if (ui_devices) {
 		fb_ui_mouse(x, y, button);
@@ -374,6 +374,57 @@ void fb_kb_kchr(id, kchr, flags) int id; int kchr; int flags; {
 	
 	keycall = fb_kb_call(id);
 	(*keycall)(id, KC_CHAR, kchr, flags);
+}
+
+
+
+/* PHYS UTILITIES
+   ============== */
+   
+
+/* fb_fb_size returns the size of the framebuffer (up to 8bpp) */
+int fb_fb_size(video_id) {
+	int mode8;
+	int i;
+	
+	// work out the size.
+	// hack for now: look at the 8-bit mode.
+	mode8 = -1;
+	for (i = 0; i < QD_MAX_MODES; i++) {
+		if (fb_vp[video_id][i].vpPixelSize >= 8) {
+			mode8 = i;
+			break;
+		}
+	}
+	if (mode8 == -1) {
+		printf("fb: couldn't find 8-bit mode\n");
+		return -1;
+	}
+	return fb_vp[video_id][mode8].vpRowBytes * video_desc[video_id]->video_mem_y;
+
+}
+
+int fb_phys(video_id, phys) int video_id; struct fb_phys* phys; {
+	int size;
+	int phys_id;
+	
+	struct user* up;
+	up = &u;
+	
+	size = fb_fb_size(video_id);
+	
+	up->u_error = 0;
+	dophys(1, phys->addr, size, video_desc[video_id]->video_addr);
+	phys_id = 1;
+
+	if (up->u_error == 0) {
+		phys->ok = 1;
+		phys->phys_id = phys_id;
+		return 0;
+	} else {
+		phys->ok = 0;
+		return up->u_error;
+	}
 }
 
 
@@ -587,6 +638,9 @@ int fb_ioctl(dev, cmd, addr, arg)
 		fb_kb_kchr(vsrc->video_key_ind, kpsrc->key, kpsrc->flags);
 		
 		return 0;
+		
+	case FB_PHYS:
+		return fb_phys(dev_index, (struct fb_phys*)addr);
 
 	}
 

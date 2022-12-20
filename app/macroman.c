@@ -1,5 +1,7 @@
 #include "macroman.h"
 
+/* This file maps from X keysyms to MacRoman characters. */
+
 unsigned char keysyms_ff[256] = {
 	[0x08] = 0x08,	// backspace
 	[0x09] = 0x09,	// tab

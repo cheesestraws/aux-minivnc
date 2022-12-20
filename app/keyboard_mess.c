@@ -12,6 +12,10 @@
    keycodes or character codes.  Depending on the mode that the A/UX
    keyboard subsystem is in, we either need to send it ASCII characters
    or ADB scancodes.
+   
+   To get ADB scancodes, we convert the X keysym into MacRoman (see
+   macroman.{c,h}, then run it backwards through the keyboard mapping
+   in play (see kchr.{c,h}).
 */
 	    
 int keysym_is_modifier(unsigned int keysym) {
@@ -170,8 +174,6 @@ void do_key_down(session* sess, keypresses kp) {
 	int i;
 	
 	for (i = 0; i < kp.count; i++) {
-		//printf("do_key: %d", (int)kp.keys[i]);
-	
 		do_key(sess, kp.keys[i]);
 	}
 	//printf("\n");
@@ -184,10 +186,7 @@ void do_key_up(session* sess, keypresses kp) {
 	for (i = kp.count - 1; i >= 0; i--) {
 		k = kp.keys[i];
 		k = k | 0x80; // key up have top bit set
-	
-		//printf("do_key: %d", (int)k);
 		do_key(sess, k);
 	}
-	//printf("\n");
 }
 

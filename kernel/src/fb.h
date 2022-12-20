@@ -38,6 +38,12 @@ struct fb_keypress {
 	int flags;
 };
 
+struct fb_phys {
+	int ok;
+	char* addr;
+	int phys_id;
+};
+
 /* ioctls */
 
 /* FB_METADATA returns the useful bits of the 'video' struct for the
@@ -83,6 +89,8 @@ struct fb_keypress {
    allows the caller to specify the flags. */
 #define FB_KB_KEYPRESS _IOW('F', 10, struct fb_keypress)
 
-
+/* FB_PHYS maps the framebuffer space into the process's address space.
+   Do not call this from a hybrid application.  You will regret it. */
+#define FB_PHYS _IOWR('F', 11, struct fb_phys)
 
 #endif

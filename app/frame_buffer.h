@@ -28,10 +28,10 @@ typedef struct  {
 	VPBlock vp;
 	struct video vi;
 
-	char* screen_mirror;
-	int mirror_size;
 	char* frame_to_send;
 	int frame_size;
+	
+	char* physed_fb;
 	
 	int last_changed;
 	fb_rect last_dirty;

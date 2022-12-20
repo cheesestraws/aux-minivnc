@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
 		return;
 	}
 
+	set42sig();
 	ignore_sigpipe();
 	nice(20);
 	listener();	

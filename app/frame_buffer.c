@@ -1,13 +1,36 @@
+#include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
+#include "errno.h"
 #include "session.h"
 #include "timer.h"
 #include "luts.h"
 #include "../kernel/src/fb.h"
 
-void fbTODO(char* str) {
-	printf("(fb/unimplemented) %s\n", str);
-}
+/* frame_buffer.c contains the code to manage an RFB framebuffer and to
+   synchronise it to a hardware framebuffer.
+
+   When the framebuffer is initialised, it allocates enough memory
+   to hold the whole frame in 8-bit colour, and also maps the hardware
+   framebuffer into the process's address space.
+   
+   When an update is requested, it does two things:
+   
+   First of all, it asks the kernel for a hash of the current CLUT.  If
+   it's different from the stored CLUT, it grabs the new CLUT and marks the
+   CLUT as having changed.
+   
+   Then it copies the displayed area of the hardware framebuffer into
+   the RFB framebuffer, noting the rectangle of it that has become
+   dirty since the last update.  If the current screen mode is less than
+   8bpp, it expands it out to 8bpp on the way in.
+   
+   The session can then either use the whole framebuffer using the
+   frame_to_send member of the frame_buffer struct or can use the dirty
+   cursor (more details below) to just read out the dirty rectangle.
+*/
 
 void fb_get_video_info(session *sess, VPBlock* vp, struct video* vi) {
 	int ret;
@@ -24,35 +47,31 @@ void fb_get_video_info(session *sess, VPBlock* vp, struct video* vi) {
 }
 
 void fb_init(session *sess, frame_buffer *fb) {
+	int ret;
+	struct fb_phys p;
+
 	// set all fields to 0
 	memset((char*)fb, '\0', sizeof(frame_buffer));
 	
 	// get the video mode, we need to know how much memory to allocate
 	fb_get_video_info(sess, &fb->vp, &fb->vi);
-	
-	if (fb->vp.vpPixelSize != 8) {
-		printf("vpPixelSize => %d\n", fb->vp.vpPixelSize); 
-		fbTODO("pixel depths != 8 are not yet supported");
-	}
-	
-	// Ideally, this would be the screen memory mapped into our process space
-	// (we'd need to phys(...) in the kernel module).  But I don't know how to
-	// yet.  So we're going to have to copy the whole screen memory into here.
-	fb->mirror_size = fb->vp.vpRowBytes * fb->vi.video_mem_y;
-	fb->screen_mirror = (char*)malloc(fb->mirror_size);
-	if (!fb->screen_mirror) {
-		session_err(sess, "could not allocate screen_mirror");
-	}
-	
+		
 	fb->frame_size = fb->vi.video_scr_x * fb->vi.video_scr_y;
 	fb->frame_to_send = (char*)malloc(fb->frame_size);
 	if (!fb->frame_to_send) {
 		session_err(sess, "could not allocate frame_to_send");
 	}
+		
+	fb->physed_fb = (char*)0x500000;
+
+	p.addr = fb->physed_fb;
+	ret = ioctl(sess->fb_fd, FB_PHYS, &p);
+	if (ret < 0) {
+		session_err(sess, "could not map framebuffer: bailing out");
+	}
 }
 
 void fb_free(frame_buffer *fb) {
-	free(fb->screen_mirror);
 	free(fb->frame_to_send);
 }
 
@@ -111,17 +130,10 @@ void fb_update(session *sess, frame_buffer *fb) {
 	
 	// First, update the CLUT
 	fb_update_clut(sess, fb);
-	
-	// Then, copy screen memory out.
+		
+	// Copy screen memory into the bitmap to send.
 	us = start_us();
-	ret = read(sess->fb_fd, fb->screen_mirror, fb->mirror_size);
-//	print_time_since("fb_update/read", us);
-	
-	// Let's pretend that nothing other than 8 bit depth exists for the
-	// moment.  Copy the screen mirror into the bitmap to send.
-
-	us = start_us();
-	src = fb->screen_mirror;
+	src = fb->physed_fb;
 	dst = fb->frame_to_send;
 	for (i = 0; i < fb->vi.video_scr_y; i++) {
 		xstart = xend = 0;
@@ -135,6 +147,8 @@ void fb_update(session *sess, frame_buffer *fb) {
 			lineChanged = fb_copy_8_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
 		}
 
+		// has anything changed on this line?  If so, expand the dirty
+		// rectangle to fit it
 		changed = changed || lineChanged;
 		if (lineChanged && (i < lowYChange)) {
 			lowYChange = i;
@@ -142,11 +156,9 @@ void fb_update(session *sess, frame_buffer *fb) {
 		if (lineChanged && (i > highYChange)) {
 			highYChange = i;
 		}
-		
 		if (lineChanged && xstart < lowXChange) {
 			lowXChange = xstart;
 		}
-		
 		if (lineChanged && xend > highXChange) {
 			highXChange = xend;
 		}
@@ -157,7 +169,6 @@ void fb_update(session *sess, frame_buffer *fb) {
 //	print_time_since("fb_update/copy", us);
 	
 	if (changed) {
-		//printf("change: %d %d %d %d\n", lowXChange, lowYChange, highXChange, highYChange);
 		fb->last_changed = changed;
 		fb->last_dirty.y1 = lowYChange;
 		fb->last_dirty.y2 = highYChange;
@@ -171,6 +182,10 @@ void fb_update(session *sess, frame_buffer *fb) {
 		fb->last_dirty.x2 = 0;
 	}
 }
+
+/* the fb_copy_n_row functions copy a row of pixels from a framebuffer
+   of depth n into an 8-bit framebuffer, expanding pixels to 8 bits wide
+   if necessary. */
 
 int fb_copy_8_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
 	int wi = width / 4;
@@ -296,6 +311,10 @@ int fb_copy_4_row(char* dst, char* src, int width, int* xstart_, int* xend_) {
 }
 
 
+/* A dirty cursor points to the first changed pixel on a line.  
+   fb_size_at_dirty_cursor returns the number of pixels that should
+   be sent out at that position; fb_advance_dirty_cursor moves the
+   cursor down to the next line of the image. */
 
 void fb_reset_dirty_cursor(frame_buffer *fb) {
 	fb->dirty_cursor.next_row_offset = fb->vi.video_scr_x;

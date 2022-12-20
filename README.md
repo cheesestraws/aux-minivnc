@@ -49,6 +49,7 @@ Note that RealVNC's default modifier mappings are rather wonky and will lead to 
 
 # I'm a user or developer: what doesn't work?
 
+* Computers that can't do 8-bit colour.  This is a bug and needs fixing and if it's actually a problem for anyone, I'll fix it.  Or you could!
 * Full-screen X sessions.  Sorry.  But why are you using ancient full-screen X under A/UX anyway?  (MacX works fine).
 * Special keys in the console emulator don't work.  There's really just enough to get you back out of the console.
 * Keyboard layout changes only take effect at the beginning of sessions.  If you change keyboard layout on A/UX, you will need to close your VNC session and open a new one to be able to type properly.

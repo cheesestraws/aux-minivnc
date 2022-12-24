@@ -52,6 +52,7 @@ int fb_get_vpblock(slot, mode, vpb) int slot; int mode; VPBlock* vpb; {
 	SpBlock sb;
 	int err;
 	VPBlock* vp;
+	int i;
 	
 	err = noErr;
 	
@@ -91,7 +92,11 @@ int fb_get_vpblock(slot, mode, vpb) int slot; int mode; VPBlock* vpb; {
 	}
 	
 	vp = (VPBlock*)sb.spResult;
-	memcpy(vpb, vp, sizeof(VPBlock));
+	
+	for (i = 0; i < sizeof(VPBlock); i++) {
+		((char*)vpb)[i] = ((char*)vp)[i];
+	}
+	//memcpy(vpb, vp, sizeof(VPBlock));
 	
 	cDisposPtr((char*)sb.spResult);
 	
@@ -202,8 +207,8 @@ extern int ui_devices;
 extern char* ui_lowaddr;
 
 /* ui_active is a variable defined by the user interface driver.  It is
-   true if the mac environment is active. */
-extern int ui_active;
+   the number of the currently active uinter layer. */
+extern char ui_active;
 
 /* Some low memory globals we're going to need. */
 #define MBSTATE 0x172

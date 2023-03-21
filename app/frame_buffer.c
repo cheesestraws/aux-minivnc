@@ -143,8 +143,11 @@ void fb_update(session *sess, frame_buffer *fb) {
 			lineChanged = fb_copy_2_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
 		} else if (fb->vp.vpPixelSize == 4) {
 			lineChanged = fb_copy_4_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
-		} else {
+		} else if (fb->vp.vpPixelSize == 8) {
 			lineChanged = fb_copy_8_row(dst, src, fb->vi.video_scr_x, &xstart, &xend);
+		} else {
+			session_err(sess, "Unsupported colour depth: only indexed-colour modes "
+				"are supported.");
 		}
 
 		// has anything changed on this line?  If so, expand the dirty
